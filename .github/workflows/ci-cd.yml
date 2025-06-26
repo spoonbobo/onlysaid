@@ -9,6 +9,9 @@ jobs:
   test-jfrog-connection:
     name: Test JFrog Artifactory Connection
     runs-on: ubuntu-latest
+    env:
+      JFROG_CLI_URL: ${{ secrets.JFROG_URL }}
+      JFROG_CLI_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -16,17 +19,13 @@ jobs:
 
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
-        with:
-          # JFrog Artifactory URL from GitHub secrets
-          url: ${{ secrets.JFROG_URL }}
-          # JFrog Artifactory access token from GitHub secrets
-          access-token: ${{ secrets.JFROG_TOKEN }}
 
       - name: Ping JFrog Artifactory
         run: |
           # Verify JFrog CLI is installed and configured
           jfrog --version
           # Ping Artifactory to test the connection and credentials
+          # The CLI will automatically use the JFROG_CLI_URL and JFROG_CLI_ACCESS_TOKEN env vars
           jfrog rt ping
         shell: bash
 
