@@ -1,0 +1,48 @@
+name: OnlySaid CI/CD
+
+on:
+  push:
+    branches:
+      - development # Assuming 'development' is your dev branch as per git status
+
+jobs:
+  test-jfrog-connection:
+    name: Test JFrog Artifactory Connection
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+        with:
+          # JFrog Artifactory URL from GitHub secrets
+          url: ${{ secrets.JFROG_URL }}
+          # JFrog Artifactory access token from GitHub secrets
+          access-token: ${{ secrets.JFROG_TOKEN }}
+
+      - name: Ping JFrog Artifactory
+        run: |
+          # Verify JFrog CLI is installed and configured
+          jfrog --version
+          # Ping Artifactory to test the connection and credentials
+          jfrog rt ping
+        shell: bash
+
+      - name: Create and Upload a Test Artifact
+        run: |
+          # Create a dummy file to upload
+          echo "A test file from GitHub Actions" > test-file.txt
+          
+          # Upload the file to a 'dev' repository in Artifactory
+          # This verifies write permissions to the 'onlysaid-electron-dev-local' repository
+          jfrog rt u "test-file.txt" "onlysaid-electron-dev-local/test-file.txt"
+        shell: bash
+        
+      - name: Clean Up Test Artifact
+        if: always() # This step will always run, even if previous steps fail
+        run: |
+          # Remove the test file from Artifactory to keep the repository clean
+          jfrog rt del "onlysaid-electron-dev-local/test-file.txt" --quiet
+        shell: bash
