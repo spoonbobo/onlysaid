@@ -9,9 +9,6 @@ jobs:
   test-jfrog-connection:
     name: Test JFrog Artifactory Connection
     runs-on: ubuntu-latest
-    env:
-      JFROG_CLI_URL: ${{ secrets.JFROG_URL }}
-      JFROG_CLI_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
 
     steps:
       - name: Checkout repository
@@ -20,13 +17,18 @@ jobs:
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
 
+      - name: Configure JFrog CLI
+        run: |
+          # Configure JFrog CLI with server details
+          jfrog config add artifactory --url="${{ secrets.JFROG_URL }}" --access-token="${{ secrets.JFROG_TOKEN }}" --interactive=false
+        shell: bash
+
       - name: Ping JFrog Artifactory
         run: |
           # Verify JFrog CLI is installed and configured
           jfrog --version
           # Ping Artifactory to test the connection and credentials
-          # The CLI will automatically use the JFROG_CLI_URL and JFROG_CLI_ACCESS_TOKEN env vars
-          jfrog rt ping
+          jfrog rt ping --server-id=artifactory
         shell: bash
 
       - name: Create and Upload a Test Artifact
@@ -36,12 +38,12 @@ jobs:
           
           # Upload the file to a 'dev' repository in Artifactory
           # This verifies write permissions to the 'onlysaid-electron-dev-local' repository
-          jfrog rt u "test-file.txt" "onlysaid-electron-dev-local/test-file.txt"
+          jfrog rt u "test-file.txt" "onlysaid-electron-dev-local/test-file.txt" --server-id=artifactory
         shell: bash
         
       - name: Clean Up Test Artifact
         if: always() # This step will always run, even if previous steps fail
         run: |
           # Remove the test file from Artifactory to keep the repository clean
-          jfrog rt del "onlysaid-electron-dev-local/test-file.txt" --quiet
+          jfrog rt del "onlysaid-electron-dev-local/test-file.txt" --quiet --server-id=artifactory
         shell: bash
