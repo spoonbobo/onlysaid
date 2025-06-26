@@ -211,35 +211,23 @@ jobs:
           echo "Building Next.js application..."
           npm run build
           
-      - name: Build Electron Application (Windows)
+      - name: Debug directory structure
         run: |
-          cd onlysaid-electron
-          echo "Building Electron application for Windows..."
-          echo "Current directory: $(pwd)"
-          echo "Available scripts:"
-          npm run --silent 2>/dev/null || echo "No scripts found"
+          echo "Current working directory: $(pwd)"
+          echo "Repository contents:"
+          ls -la
+          echo "Looking for onlysaid-electron directory:"
+          find . -name "onlysaid-electron" -type d
           
-          # Verify package.json exists and has the script
-          if [ -f "package.json" ]; then
-            echo "package.json found"
-            if grep -q "package:windows" package.json; then
-              echo "package:windows script found"
-              npm run package:windows
-            else
-              echo "package:windows script not found in package.json"
-              echo "Available scripts:"
-              npm run
-              exit 1
-            fi
-          else
-            echo "package.json not found in $(pwd)"
-            ls -la
-            exit 1
-          fi
+      - name: Build Electron Application (Windows)
+        working-directory: ./onlysaid-electron
+        run: |
+          echo "Building Electron application for Windows..."
+          npm run package:windows
           
       - name: Build Electron Application (All Platforms)
+        working-directory: ./onlysaid-electron
         run: |
-          cd onlysaid-electron
           echo "Building Electron application for all platforms..."
           npm run package
           
