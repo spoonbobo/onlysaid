@@ -185,9 +185,18 @@ jobs:
       - name: JFrog Security Scan
         if: env.JFROG_CONFIGURED == 'true'
         run: |
-          echo "Running JFrog Xray security scan..."
-          jfrog audit --server-id=artifactory
+          echo "Testing JFrog connectivity..."
+          if timeout 30s curl -f -s "${{ secrets.JFROG_URL }}/artifactory/api/system/ping" > /dev/null; then
+            echo "JFrog server is accessible, running security scan..."
+            timeout 90s jfrog audit --server-id=artifactory || {
+              echo "⚠️ JFrog Xray scan failed"
+            }
+          else
+            echo "⚠️ JFrog server is not accessible from GitHub Actions"
+            echo "Skipping security scan due to connectivity issues"
+          fi
         continue-on-error: true
+        timeout-minutes: 3
         
       # 4. Build Artifacts
       - name: Build Next.js Application
