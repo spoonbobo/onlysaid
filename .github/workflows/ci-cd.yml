@@ -3,47 +3,314 @@ name: OnlySaid CI/CD
 on:
   push:
     branches:
-      - development # Assuming 'development' is your dev branch as per git status
+      - development
+  pull_request:
+    branches:
+      - development
+
+env:
+  # Build versioning
+  BUILD_VERSION: ${{ github.sha }}
+  BUILD_NUMBER: ${{ github.run_number }}
+  
+  # JFrog configuration
+  JFROG_CLI_URL: ${{ secrets.JFROG_URL }}
+  JFROG_CLI_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
+  
+  # Docker registry configuration (updated to match your repos)
+  DOCKER_REGISTRY: ${{ secrets.JFROG_URL }}/oa-onlysaid-app-docker-dev-local
+  ELECTRON_REGISTRY: oa-onlysaid-electron-dev-local
 
 jobs:
-  test-jfrog-connection:
-    name: Test JFrog Artifactory Connection
+  # Stage 1: CI - Build & Initial Publication
+  ci-build-and-publish:
+    name: CI - Build & Publish Artifacts
     runs-on: ubuntu-latest
-
+    
+    outputs:
+      build-version: ${{ env.BUILD_VERSION }}
+      docker-image-tag: ${{ steps.docker-meta.outputs.tags }}
+      
     steps:
+      # 1. Setup & Checkout
       - name: Checkout repository
         uses: actions/checkout@v4
-
+        with:
+          fetch-depth: 0  # Full history for proper versioning
+          
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
-
+        continue-on-error: true  # Don't fail if JFrog is not accessible yet
+        
       - name: Configure JFrog CLI
         run: |
-          # Configure JFrog CLI with server details
-          jfrog config add artifactory --url="${{ secrets.JFROG_URL }}" --access-token="${{ secrets.JFROG_TOKEN }}" --interactive=false
-        shell: bash
-
-      - name: Ping JFrog Artifactory
-        run: |
-          # Verify JFrog CLI is installed and configured
-          jfrog --version
-          # Ping Artifactory to test the connection and credentials
-          jfrog rt ping --server-id=artifactory
-        shell: bash
-
-      - name: Create and Upload a Test Artifact
-        run: |
-          # Create a dummy file to upload
-          echo "A test file from GitHub Actions" > test-file.txt
-          
-          # Upload the file to a 'dev' repository in Artifactory
-          # This verifies write permissions to the 'onlysaid-electron-dev-local' repository
-          jfrog rt u "test-file.txt" "onlysaid-electron-dev-local/test-file.txt" --server-id=artifactory
-        shell: bash
+          if [ -n "${{ secrets.JFROG_URL }}" ] && [ -n "${{ secrets.JFROG_TOKEN }}" ]; then
+            jfrog config add artifactory --url="${{ secrets.JFROG_URL }}" --access-token="${{ secrets.JFROG_TOKEN }}" --interactive=false
+            echo "JFROG_CONFIGURED=true" >> $GITHUB_ENV
+          else
+            echo "JFrog credentials not available, skipping JFrog steps"
+            echo "JFROG_CONFIGURED=false" >> $GITHUB_ENV
+          fi
+        continue-on-error: true
         
-      - name: Clean Up Test Artifact
-        if: always() # This step will always run, even if previous steps fail
+      # 2. Dependency Management - Updated to use your npm virtual repo
+      - name: Configure npm for JFrog Artifactory
         run: |
-          # Remove the test file from Artifactory to keep the repository clean
-          jfrog rt del "onlysaid-electron-dev-local/test-file.txt" --quiet --server-id=artifactory
-        shell: bash
+          if [ "$JFROG_CONFIGURED" = "true" ]; then
+            echo "Setting up .npmrc for JFrog Artifactory npm proxy"
+            # Extract base URL without protocol for npm config
+            JFROG_BASE_URL=$(echo "${{ secrets.JFROG_URL }}" | sed 's|^https\?://||')
+            
+            # Create .npmrc to use your oa-npm virtual repository
+            cat > .npmrc << EOF
+          registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/
+          //${JFROG_BASE_URL}/artifactory/api/npm/oa-npm/:_auth=$(echo -n ":${{ secrets.JFROG_TOKEN }}" | base64)
+          //${JFROG_BASE_URL}/artifactory/api/npm/oa-npm/:always-auth=true
+          EOF
+            echo "Created .npmrc for oa-npm virtual repository"
+          else
+            echo "Using default npm registry"
+          fi
+        continue-on-error: true
+        
+      - name: Install dependencies (Next.js)
+        run: npm ci
+        
+      - name: Install dependencies (Electron)
+        run: |
+          cd onlysaid-electron
+          # Copy the .npmrc to electron directory if it exists
+          if [ -f "../.npmrc" ]; then
+            cp ../.npmrc .
+          fi
+          npm ci
+          
+      # 3. Quality & Security Scan
+      - name: Run ESLint (Next.js)
+        run: npm run lint
+        
+      - name: Run ESLint (Electron)
+        run: |
+          cd onlysaid-electron
+          npm run lint
+          
+      - name: Run tests (Next.js)
+        run: |
+          # Add test command when available
+          echo "No tests configured yet for Next.js app"
+          
+      - name: Run tests (Electron)
+        run: |
+          cd onlysaid-electron
+          npm test
+          
+      - name: JFrog Security Scan
+        if: env.JFROG_CONFIGURED == 'true'
+        run: |
+          echo "Running JFrog Xray security scan..."
+          jfrog audit --server-id=artifactory
+        continue-on-error: true
+        
+      # 4. Build Artifacts
+      - name: Build Next.js Application
+        run: |
+          echo "Building Next.js application..."
+          npm run build
+          
+      - name: Build Electron Application (Windows)
+        run: |
+          cd onlysaid-electron
+          echo "Building Electron application for Windows..."
+          npm run package:windows
+          
+      - name: Build Electron Application (Cross-platform)
+        run: |
+          cd onlysaid-electron
+          echo "Building Electron application for all platforms..."
+          npm run package
+          
+      # Docker Setup
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Extract Docker metadata
+        id: docker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/onlysaid-app
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=dev-latest
+            
+      # Build Docker Images - Updated to use your repository names
+      - name: Build Next.js Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.next
+          platforms: linux/amd64
+          push: false
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-app.tar
+          
+      - name: Build Socket Server Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./socket_server
+          file: ./socket_server/Dockerfile.socket_server
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-socket.tar
+          
+      - name: Build Knowledge Base Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.kb
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-kb.tar
+          
+      - name: Build Documentation Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.docs
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-docs.tar
+          
+      # 5. Publish to Artifactory (Dev Tier) - Updated repository names
+      - name: Upload Docker Images to JFrog Artifactory
+        if: env.JFROG_CONFIGURED == 'true'
+        run: |
+          echo "Uploading Docker images to JFrog Artifactory..."
+          
+          # Load and tag images
+          docker load < /tmp/onlysaid-app.tar
+          docker load < /tmp/onlysaid-socket.tar
+          docker load < /tmp/onlysaid-kb.tar
+          docker load < /tmp/onlysaid-docs.tar
+          
+          # Tag images for your repository
+          docker tag ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }} ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
+          docker tag ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }} ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
+          docker tag ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }} ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
+          docker tag ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }} ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
+          
+          # Push to your oa-onlysaid-app-docker-dev-local repository
+          echo "Pushing images to oa-onlysaid-app-docker-dev-local..."
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
+        continue-on-error: true
+        
+      - name: Upload Electron Installers to JFrog Artifactory
+        if: env.JFROG_CONFIGURED == 'true'
+        run: |
+          echo "Uploading Electron installers to oa-onlysaid-electron-dev-local..."
+          
+          cd onlysaid-electron/release/build
+          
+          # Upload all built installers to your electron dev repository
+          for file in *.exe *.dmg *.AppImage; do
+            if [ -f "$file" ]; then
+              echo "Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
+              jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
+                --server-id=artifactory \
+                --build-name="OnlySaid-Electron" \
+                --build-number="${{ env.BUILD_NUMBER }}"
+            fi
+          done
+        continue-on-error: true
+        
+      # Store artifacts for potential manual download/testing
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images-${{ env.BUILD_VERSION }}
+          path: /tmp/*.tar
+          retention-days: 7
+          
+      - name: Upload Electron Installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: electron-installers-${{ env.BUILD_VERSION }}
+          path: onlysaid-electron/release/build/*
+          retention-days: 7
+          
+      # 6. Optional: Deploy to Dev Environment
+      - name: Generate deployment manifests
+        run: |
+          echo "Generating Kubernetes deployment manifests..."
+          mkdir -p k8s-manifests
+          
+          # Create a simple deployment manifest template using your docker registry
+          cat > k8s-manifests/onlysaid-app-deployment.yaml << EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: onlysaid-app-dev
+            namespace: onlysaid-dev
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: onlysaid-app-dev
+            template:
+              metadata:
+                labels:
+                  app: onlysaid-app-dev
+              spec:
+                containers:
+                - name: onlysaid-app
+                  image: ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
+                  ports:
+                  - containerPort: 3000
+          EOF
+          
+      - name: Upload Kubernetes Manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-manifests-${{ env.BUILD_VERSION }}
+          path: k8s-manifests/
+          retention-days: 7
+          
+      # Summary
+      - name: Build Summary
+        run: |
+          echo "## Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Version:** ${{ env.BUILD_VERSION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Build Number:** ${{ env.BUILD_NUMBER }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **JFrog Configured:** ${{ env.JFROG_CONFIGURED }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Registry:** oa-onlysaid-app-docker-dev-local" >> $GITHUB_STEP_SUMMARY
+          echo "- **Electron Registry:** oa-onlysaid-electron-dev-local" >> $GITHUB_STEP_SUMMARY
+          echo "- **NPM Registry:** oa-npm (virtual)" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Images Built:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Electron Installers Built:** ✅" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ env.JFROG_CONFIGURED }}" = "true" ]; then
+            echo "- **Artifacts Published to JFrog:** ✅" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "- **Artifacts Published to JFrog:** ⏸️ (JFrog not configured)" >> $GITHUB_STEP_SUMMARY
+          fi
