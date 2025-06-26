@@ -66,17 +66,16 @@ jobs:
             echo "Setting up .npmrc for JFrog Artifactory npm proxy"
             
             # Create .npmrc to use your oa-npm virtual repository
-            # Note: Using /api/npm/ path for npm registry API
             cat > .npmrc << EOF
-          registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/
-          //${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/:_authToken=${{ secrets.JFROG_TOKEN }}
-          always-auth=true
+          registry=http://103.1.32.206:8080/artifactory/api/npm/oa-npm/
+          //103.1.32.206:8080/artifactory/api/npm/oa-npm/:_authToken=${{ secrets.JFROG_TOKEN }}
+          //103.1.32.206:8080/artifactory/api/npm/oa-npm/:always-auth=true
           EOF
             echo "Created .npmrc for oa-npm virtual repository"
             
             # Test the connection
             echo "Testing npm registry connection..."
-            npm ping --registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/ || {
+            npm ping --registry=http://103.1.32.206:8080/artifactory/api/npm/oa-npm/ || {
               echo "NPM ping failed, will use default registry as fallback"
               rm -f .npmrc
             }
@@ -87,8 +86,8 @@ jobs:
         
       - name: Install dependencies (Next.js) with timeout and fallback
         run: |
-          echo "Starting npm ci with 3 minute timeout..."
-          timeout 180 npm ci || {
+          echo "Starting npm ci with 2 minute timeout..."
+          timeout 120 npm ci || {
             echo "npm ci failed or timed out with JFrog registry, falling back to default registry"
             rm -f .npmrc
             echo "Using default npm registry for fallback"
