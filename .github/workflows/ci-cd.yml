@@ -64,28 +64,32 @@ jobs:
         run: |
           if [ "$JFROG_CONFIGURED" = "true" ]; then
             echo "Setting up .npmrc for JFrog Artifactory npm proxy"
-            # Extract base URL without protocol for npm config
-            JFROG_BASE_URL=$(echo "${{ secrets.JFROG_URL }}" | sed 's|^https\?://||')
             
             # Create .npmrc to use your oa-npm virtual repository
+            # Note: Using /api/npm/ path for npm registry API
             cat > .npmrc << EOF
           registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/
-          //${JFROG_BASE_URL}/artifactory/api/npm/oa-npm/:_auth=$(echo -n ":${{ secrets.JFROG_TOKEN }}" | base64)
-          //${JFROG_BASE_URL}/artifactory/api/npm/oa-npm/:always-auth=true
+          //${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/:_authToken=${{ secrets.JFROG_TOKEN }}
+          always-auth=true
           EOF
             echo "Created .npmrc for oa-npm virtual repository"
+            
+            # Test the connection
             echo "Testing npm registry connection..."
-            npm ping --registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/ || echo "NPM ping failed, will fallback to default registry"
+            npm ping --registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/ || {
+              echo "NPM ping failed, will use default registry as fallback"
+              rm -f .npmrc
+            }
           else
             echo "Using default npm registry"
           fi
         continue-on-error: true
         
-      - name: Install dependencies (Next.js) with timeout
+      - name: Install dependencies (Next.js) with timeout and fallback
         run: |
-          echo "Starting npm ci with 5 minute timeout..."
-          timeout 300 npm ci || {
-            echo "npm ci timed out or failed with JFrog registry, falling back to default registry"
+          echo "Starting npm ci with 3 minute timeout..."
+          timeout 180 npm ci || {
+            echo "npm ci failed or timed out with JFrog registry, falling back to default registry"
             rm -f .npmrc
             echo "Using default npm registry for fallback"
             npm ci
