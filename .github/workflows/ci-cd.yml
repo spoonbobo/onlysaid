@@ -74,13 +74,22 @@ jobs:
           //${JFROG_BASE_URL}/artifactory/api/npm/oa-npm/:always-auth=true
           EOF
             echo "Created .npmrc for oa-npm virtual repository"
+            echo "Testing npm registry connection..."
+            npm ping --registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/ || echo "NPM ping failed, will fallback to default registry"
           else
             echo "Using default npm registry"
           fi
         continue-on-error: true
         
-      - name: Install dependencies (Next.js)
-        run: npm ci
+      - name: Install dependencies (Next.js) with timeout
+        run: |
+          echo "Starting npm ci with 5 minute timeout..."
+          timeout 300 npm ci || {
+            echo "npm ci timed out or failed with JFrog registry, falling back to default registry"
+            rm -f .npmrc
+            echo "Using default npm registry for fallback"
+            npm ci
+          }
         
       - name: Install dependencies (Electron)
         run: |
