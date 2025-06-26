@@ -200,6 +200,13 @@ jobs:
         
       # 4. Build Artifacts
       - name: Build Next.js Application
+        env:
+          # Essential for Stripe API routes that get called during build
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          
+          # Required for Next.js build process
+          NODE_ENV: production
+          
         run: |
           echo "Building Next.js application..."
           npm run build
