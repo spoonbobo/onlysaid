@@ -1,0 +1,3 @@
+[submodule "onlysaid-electron"]
+	path = onlysaid-electron
+	url = https://github.com/spoonbobo/onlysaid-electron

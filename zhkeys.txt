@@ -1,0 +1,15 @@
+AdminPanel
+Auth
+Chat
+Dashboard
+Errors
+Footer
+Home
+HomePage
+Learn
+Loading
+Navbar
+Settings
+Signin
+Signup
+Tasks

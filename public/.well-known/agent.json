@@ -1,0 +1,11 @@
+{
+    "name": "Your Agent Name",
+    "description": "Description of your agent",
+    "version": "1.0.0",
+    "capabilities": {
+      "chat": true,
+      "voice": false
+    },
+    "contact": "contact@example.com",
+    "documentation_url": "https://docs.example.com"
+  }

@@ -1,0 +1,10 @@
+FROM node:23.7-alpine AS builder
+WORKDIR /app
+
+RUN npm i docsify-cli -g
+
+COPY ./docs /app
+
+EXPOSE 43000
+
+CMD ["docsify", "serve", "/app", "-p", "43000"]

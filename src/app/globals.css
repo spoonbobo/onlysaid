@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+:root {
+  --background: #ffffff;
+  --foreground: #171717;
+  /* Now the mono font will be defined by the next/font module */
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
+}
+
+.code-block-container {
+  position: relative;
+  margin: 0.75em 0;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background-color: rgba(0, 0, 0, 0.03);
+  overflow: hidden;
+}
+
+.dark .code-block-container {
+  border-color: rgba(255, 255, 255, 0.15);
+  background-color: rgba(255, 255, 255, 0.05);
+}
+
+.code-block-pre {
+  margin: 0;
+  padding: 1em;
+  overflow-x: auto;
+  overflow-y: auto;
+  max-height: 400px;
+  font-size: 0.875em;
+  line-height: 1.5;
+}
+
+.code-block-code {
+  font-family: var(--font-mono);
+  white-space: pre;
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  /* font-family: var(--font-space-mono),ubuntu, "Lucida Sans Unicode", "Lucida Grande", "Lucida Sans", Arial, sans-serif; */
+}
+
+

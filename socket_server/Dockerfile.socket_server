@@ -1,0 +1,27 @@
+# Use a stable Node.js version (Alpine-based for small size)
+FROM node:20-alpine
+
+# Set the working directory inside the container
+WORKDIR /app
+
+# Install build tools and dependencies for node-gyp and native modules
+RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
+    libpq-dev
+
+# Copy only package.json and package-lock.json to leverage Docker caching
+COPY package*.json ./
+
+# Install dependencies
+RUN npm install
+
+# Copy the application source code
+COPY . .
+
+# Expose the application port
+EXPOSE 3001
+
+# Command to start the application
+CMD ["node", "server.js"]

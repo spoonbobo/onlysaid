@@ -1,0 +1,57 @@
+# STT (Speech-to-Text) service using WhisperLiveKit
+# Port: 34430
+
+FROM nvcr.io/nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04
+
+WORKDIR /app
+
+# Install system dependencies including audio libraries
+RUN apt-get update && apt-get install -y \
+    python3 \
+    python3-pip \
+    python3-dev \
+    gcc \
+    libc-dev \
+    curl \
+    wget \
+    ffmpeg \
+    git \
+    # Audio libraries
+    alsa-utils \
+    pulseaudio \
+    pulseaudio-utils \
+    libasound2-dev \
+    portaudio19-dev \
+    && rm -rf /var/lib/apt/lists/* \
+    && ln -sf /usr/bin/python3 /usr/bin/python \
+    && ln -sf /usr/bin/pip3 /usr/bin/pip
+
+# Install WhisperLiveKit with all backends
+RUN pip install whisperlivekit[whisper,whisper-timestamped,mlx-whisper,openai]
+
+# Install additional audio libraries for Python
+RUN pip install pyaudio sounddevice
+
+# Set environment variables
+ENV PYTHONUNBUFFERED=1
+ENV CUDA_VISIBLE_DEVICES=0
+# Audio environment variables
+ENV ALSA_CARD=0
+ENV PULSE_RUNTIME_PATH=/run/user/1000/pulse
+
+# Copy any custom configuration if needed
+COPY stt/ ./
+
+# Create ALSA configuration
+RUN echo "pcm.!default { type pulse }" > /etc/asound.conf && \
+    echo "ctl.!default { type pulse }" >> /etc/asound.conf
+
+# Expose the port
+EXPOSE 34430
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+    CMD curl -f http://localhost:34430/ || exit 1
+
+# Use more permissive settings for better audio detection
+CMD ["whisperlivekit-server", "--host", "0.0.0.0", "--port", "34430", "--model", "tiny.en", "--min-chunk-size", "0.1", "--log-level", "DEBUG"]
