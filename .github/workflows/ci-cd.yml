@@ -37,6 +37,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive
 
       # 2. Verify runner environment
       - name: "[VERIFY] Runner environment"
@@ -194,7 +195,7 @@ jobs:
         env:
           KB_BASE_URL: ${{ secrets.KB_BASE_URL || 'http://onlysaid-dev.com/api/kb/' }}
           MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID || '' }}
-          ONLYSAID_API_URL: ${{ secrets.ONLYSAID_API_URL || 'https://api.onlysaid.com' }}
+          ONLYSAID_API_URL: ${{ secrets.ONLYSAID_API_URL || 'https://api.onlysaeid.com' }}
           ONLYSAID_DOMAIN: ${{ secrets.ONLYSAID_DOMAIN || 'https://onlysaid.com' }}
           SOCKET_SERVER_URL: ${{ secrets.SOCKET_SERVER_URL || 'http://localhost:3001' }}
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID || '' }}
