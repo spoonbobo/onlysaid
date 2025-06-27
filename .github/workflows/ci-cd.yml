@@ -140,9 +140,8 @@ jobs:
           npm config set fetch-retry-maxtimeout 60000
           npm config set fetch-retries 3
           
-          # Copy the .npmrc to electron directory
-          echo "Copying .npmrc for JFrog registry..."
-          cp ../.npmrc .
+          # No need to copy .npmrc - using public registry by default
+          echo "Using public npm registry for Electron dependencies..."
           
           # Test connectivity
           echo "Testing npm registry connectivity for Electron..."
