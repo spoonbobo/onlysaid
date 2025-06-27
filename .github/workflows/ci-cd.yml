@@ -77,9 +77,15 @@ jobs:
           fi
           
           echo "Configuring JFrog CLI..."
-          jfrog config add artifactory --url="${{ secrets.JFROG_URL }}" --access-token="${{ secrets.JFROG_TOKEN }}" --interactive=false
+          
+          # Use a unique server ID to avoid conflicts
+          SERVER_ID="artifactory-${BUILD_NUMBER}-$(date +%s)"
+          
+          # Add configuration with unique ID
+          jfrog config add "$SERVER_ID" --url="${{ secrets.JFROG_URL }}" --access-token="${{ secrets.JFROG_TOKEN }}" --interactive=false
+          echo "JFROG_SERVER_ID=$SERVER_ID" >> $GITHUB_ENV
           echo "JFROG_CONFIGURED=true" >> $GITHUB_ENV
-          echo "✅ JFrog CLI configured successfully"
+          echo "✅ JFrog CLI configured successfully with server ID: $SERVER_ID"
 
       # 5. Test JFrog connectivity
       - name: Test JFrog connectivity
@@ -192,7 +198,7 @@ jobs:
         run: |
           echo "Running JFrog security scan..."
           echo "JFrog server is accessible, running security scan..."
-          timeout 120s jfrog audit --server-id=artifactory
+          timeout 120s jfrog audit --server-id="${JFROG_SERVER_ID:-artifactory}"
           echo "✅ JFrog security scan completed"
         timeout-minutes: 3
         
@@ -337,7 +343,7 @@ jobs:
             if [ -f "$file" ]; then
               echo "Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
               jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
-                --server-id=artifactory \
+                --server-id="${JFROG_SERVER_ID:-artifactory}" \
                 --build-name="OnlySaid-Electron" \
                 --build-number="${{ env.BUILD_NUMBER }}"
               UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
@@ -426,6 +432,12 @@ jobs:
         if: always()
         run: |
           echo "🧹 Cleaning up workspace for self-hosted runner..."
+          
+          # Clean up JFrog configuration
+          if [ -n "${JFROG_SERVER_ID}" ]; then
+            echo "Cleaning up JFrog configuration..."
+            jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
+          fi
           
           # Clean up Docker images to save space
           echo "Cleaning up Docker images..."
