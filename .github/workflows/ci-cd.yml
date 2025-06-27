@@ -159,13 +159,13 @@ jobs:
           echo "Skipping Electron tests - will be run during package build"
           echo "✅ Electron tests will be handled by package script"
           
-      # - name: JFrog Security Scan
-      #   run: |
-      #     echo "Running JFrog security scan..."
-      #     echo "JFrog server is accessible, running security scan..."
-      #     timeout 120s jfrog audit --server-id="${JFROG_SERVER_ID:-artifactory}"
-      #     echo "✅ JFrog security scan completed"
-      #   timeout-minutes: 3
+      - name: JFrog Security Scan
+        run: |
+          echo "Running JFrog security scan..."
+          echo "JFrog server is accessible, running security scan..."
+          timeout 120s jfrog audit --server-id="${JFROG_SERVER_ID:-artifactory}"
+          echo "✅ JFrog security scan completed"
+        timeout-minutes: 3
         
       # 9. Build Artifacts
       - name: "[BUILD] Applications"
