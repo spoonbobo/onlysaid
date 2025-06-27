@@ -169,6 +169,26 @@ jobs:
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         
+      - name: "[CONFIG] JFrog CLI server configuration"
+        run: |
+          echo "🔧 Configuring JFrog CLI server..."
+          
+          # Configure JFrog CLI with server details
+          jfrog config add artifactory \
+            --url="${JFROG_URL}" \
+            --access-token="${JFROG_TOKEN}" \
+            --interactive=false
+          
+          # Set the server as default
+          jfrog config use artifactory
+          
+          # Verify configuration
+          echo "Testing JFrog CLI configuration..."
+          jfrog rt ping
+          
+          echo "✅ JFrog CLI configured successfully"
+          echo "JFROG_SERVER_ID=artifactory" >> $GITHUB_ENV
+        
       - name: "[CONFIG] JFrog connectivity"
         run: |
           echo "🔗 Testing JFrog connectivity..."
@@ -395,13 +415,23 @@ jobs:
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
+          # Debug: Show environment variables
+          echo "Debug: Environment variables"
+          echo "JFROG_URL: ${JFROG_URL}"
+          echo "DOCKER_REGISTRY: ${{ env.DOCKER_REGISTRY }}"
+          echo "JFROG_INSECURE: ${{ env.JFROG_INSECURE }}"
+          
           # Login to JFrog Docker registry with proper protocol handling
           if [ "${{ env.JFROG_INSECURE }}" = "true" ]; then
             echo "Logging in to insecure JFrog Docker registry..."
-            echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_REGISTRY }}" -u admin --password-stdin
+            # For insecure registries, use the registry domain directly
+            REGISTRY_DOMAIN=$(echo "${{ env.DOCKER_REGISTRY }}" | cut -d'/' -f1)
+            echo "${{ secrets.JFROG_TOKEN }}" | docker login "$REGISTRY_DOMAIN" -u admin --password-stdin
           else
             echo "Logging in to secure JFrog Docker registry..."
-            echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
+            # For secure registries, use the full Docker registry URL
+            REGISTRY_DOMAIN=$(echo "${{ env.DOCKER_REGISTRY }}" | cut -d'/' -f1)
+            echo "${{ secrets.JFROG_TOKEN }}" | docker login "$REGISTRY_DOMAIN" -u admin --password-stdin
           fi
           
           # Push to oa-onlysaid-app-docker-dev-local repository
@@ -430,7 +460,7 @@ jobs:
             if [ -f "$file" ]; then
               echo "Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
               jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
-                --server-id="${JFROG_SERVER_ID:-artifactory}" \
+                --server-id="artifactory" \
                 --build-name="OnlySaid-Electron" \
                 --build-number="${{ env.BUILD_NUMBER }}"
               UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
@@ -545,10 +575,8 @@ jobs:
           fi
           
           # Clean up JFrog configuration
-          if [ -n "${JFROG_SERVER_ID}" ]; then
-            echo "Cleaning up JFrog configuration..."
-            jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
-          fi
+          echo "Cleaning up JFrog configuration..."
+          jfrog config remove artifactory --quiet || echo "JFrog config cleanup failed"
           
           # Clean up Docker images to save space
           echo "Cleaning up Docker images..."
