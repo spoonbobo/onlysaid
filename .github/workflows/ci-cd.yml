@@ -33,13 +33,13 @@ jobs:
       
     steps:
       # 1. Setup & Checkout
-      - name: "1. Checkout repository"
+      - name: "[INIT] Checkout repository"
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       # 2. Verify runner environment
-      - name: "2. Verify runner environment"
+      - name: "[VERIFY] Runner environment"
         run: |
           echo "🔍 Verifying self-hosted runner environment..."
           echo "Runner OS: $(uname -a)"
@@ -60,7 +60,7 @@ jobs:
           echo "✅ Environment verification completed"
           
       # 3. Install Node.js if not available
-      - name: "3. Set up Node.js"
+      - name: "[SETUP] Node.js and JFrog CLI"
         uses: actions/setup-node@v4
         with:
           node-version: '20'
@@ -69,28 +69,9 @@ jobs:
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         
-      - name: "4. Configure JFrog CLI"
+      - name: "[CONFIG] JFrog connectivity"
         run: |
-          if [ -z "${{ secrets.JFROG_URL }}" ] || [ -z "${{ secrets.JFROG_TOKEN }}" ]; then
-            echo "❌ JFrog credentials are required but not provided"
-            exit 1
-          fi
-          
-          echo "Configuring JFrog CLI..."
-          
-          # Use a unique server ID to avoid conflicts
-          SERVER_ID="artifactory-${BUILD_NUMBER}-$(date +%s)"
-          
-          # Add configuration with unique ID
-          jfrog config add "$SERVER_ID" --url="${{ secrets.JFROG_URL }}" --access-token="${{ secrets.JFROG_TOKEN }}" --interactive=false
-          echo "JFROG_SERVER_ID=$SERVER_ID" >> $GITHUB_ENV
-          echo "JFROG_CONFIGURED=true" >> $GITHUB_ENV
-          echo "✅ JFrog CLI configured successfully with server ID: $SERVER_ID"
-
-      # 5. Test JFrog connectivity
-      - name: "5. Test JFrog connectivity"
-        run: |
-          echo "🔗 Testing JFrog connectivity from self-hosted runner..."
+          echo "🔗 Testing JFrog connectivity..."
           
           # Test JFrog connectivity - MUST succeed
           if curl -f -s --connect-timeout 30 --max-time 30 "${{ secrets.JFROG_URL }}/artifactory/api/system/ping" > /dev/null; then
@@ -108,12 +89,7 @@ jobs:
         timeout-minutes: 1
         
       # 6. Dependency Management (simplified)
-      - name: Configure npm for public registry
-        run: |
-          echo "Using public npm registry"
-          echo "✅ Using default npm configuration"
-        
-      - name: "6. Install Next.js dependencies"
+      - name: "[DEPS] Next.js dependencies"
         run: |
           echo "Installing Next.js dependencies..."
           
@@ -128,7 +104,7 @@ jobs:
           echo "✅ Successfully installed Next.js dependencies"
         timeout-minutes: 15
         
-      - name: Install dependencies (Electron)
+      - name: "[DEPS] Electron dependencies"
         run: |
           cd onlysaid-electron
           
@@ -153,9 +129,9 @@ jobs:
         timeout-minutes: 15
           
       # 7. Quality & Security Scan
-      - name: "8. Run quality checks"
+      - name: "[QA] Code quality checks"
         run: |
-          echo "Running ESLint and tests..."
+          echo "Running ESLint and security scan..."
           
       - name: Run ESLint (Next.js)
         run: |
@@ -192,12 +168,12 @@ jobs:
         timeout-minutes: 3
         
       # 9. Build Artifacts
-      - name: "9. Build applications"
+      - name: "[BUILD] Applications"
         env:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           NODE_ENV: production
         run: |
-          echo "Building Next.js application..."
+          echo "Building Next.js and Electron..."
           npm run build
           echo "✅ Next.js application built successfully"
           
@@ -243,7 +219,7 @@ jobs:
             type=raw,value=dev-latest
             
       # Build Docker Images
-      - name: "10. Create Docker images"
+      - name: "[DOCKER] Container images"
         run: |
           echo "Building Docker images..."
           
@@ -297,9 +273,9 @@ jobs:
           outputs: type=docker,dest=/tmp/onlysaid-docs.tar
           
       # 11. Publish to Artifactory (Dev Tier)
-      - name: "11. Upload to JFrog"
+      - name: "[PUBLISH] Upload artifacts"
         run: |
-          echo "Uploading Docker images to JFrog Artifactory..."
+          echo "Uploading to JFrog..."
           
           # Load and tag images
           docker load < /tmp/onlysaid-app.tar
@@ -421,10 +397,10 @@ jobs:
           echo "- **Artifacts Published to JFrog:** ✅" >> $GITHUB_STEP_SUMMARY
 
       # 12. Cleanup workspace (important for self-hosted runners)
-      - name: "12. Cleanup workspace"
+      - name: "[CLEANUP] Workspace cleanup"
         if: always()
         run: |
-          echo "🧹 Cleaning up workspace for self-hosted runner..."
+          echo "🧹 Cleaning up..."
           
           # Clean up JFrog configuration
           if [ -n "${JFROG_SERVER_ID}" ]; then
