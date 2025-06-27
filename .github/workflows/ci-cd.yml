@@ -266,9 +266,13 @@ jobs:
         with:
           images: ${{ env.DOCKER_REGISTRY }}/onlysaid-app
           tags: |
-            type=ref,event=branch
-            type=sha,prefix={{branch}}-
-            type=raw,value=dev-latest
+            type=raw,value=dev-${{ env.BUILD_VERSION }}
+            type=raw,value=dev-latest,enable={{is_default_branch}}
+          labels: |
+            org.opencontainers.image.title=OnlySaid App
+            org.opencontainers.image.description=OnlySaid Application
+            org.opencontainers.image.version=${{ env.BUILD_VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
             
       # Build Docker Images
       - name: "[DOCKER] Container images"
@@ -329,55 +333,72 @@ jobs:
         run: |
           echo "Uploading to JFrog..."
           
+          # Clean up any existing images first to avoid conflicts
+          echo "Cleaning up existing Docker images..."
+          docker image prune -f
+          
           # Load and tag images
           docker load < /tmp/onlysaid-app.tar
           docker load < /tmp/onlysaid-socket.tar
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Configure Docker for insecure registry (HTTP)
-          REGISTRY_HOST=$(echo "${{ env.DOCKER_REGISTRY }}" | cut -d'/' -f1)
-          echo "Configuring Docker daemon for insecure registry: $REGISTRY_HOST"
+          # Extract the domain from JFROG_URL for Docker registry login
+          JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
+          echo "Docker registry domain: ${JFROG_DOMAIN}"
           
-          # Create or update Docker daemon configuration
-          sudo mkdir -p /etc/docker
-          if [ -f /etc/docker/daemon.json ]; then
-            # Backup existing config
-            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
-            # Add insecure registry to existing config using jq
-            if command -v jq &> /dev/null; then
-              sudo jq --arg registry "$REGISTRY_HOST" '.["insecure-registries"] += [$registry]' /etc/docker/daemon.json > /tmp/daemon.json
-              sudo mv /tmp/daemon.json /etc/docker/daemon.json
-            else
-              # Fallback if jq is not available
-              echo "{\"insecure-registries\": [\"$REGISTRY_HOST\"]}" | sudo tee /etc/docker/daemon.json
+          # Login to JFrog Docker registry with proper domain and timeout
+          echo "Logging into JFrog Docker registry..."
+          echo "${{ secrets.JFROG_TOKEN }}" | timeout 60s docker login "${JFROG_DOMAIN}" -u admin --password-stdin
+          
+          if [ $? -ne 0 ]; then
+            echo "❌ Docker login failed. Attempting alternative login method..."
+            # Alternative login method with explicit timeout
+            timeout 60s docker login "${JFROG_DOMAIN}" -u admin -p "${{ secrets.JFROG_TOKEN }}"
+            if [ $? -ne 0 ]; then
+              echo "❌ All Docker login attempts failed"
+              exit 1
             fi
-          else
-            # Create new config
-            echo "{\"insecure-registries\": [\"$REGISTRY_HOST\"]}" | sudo tee /etc/docker/daemon.json
           fi
           
-          # Restart Docker daemon to apply changes
-          sudo systemctl restart docker
+          echo "✅ Successfully logged into Docker registry"
           
-          # Wait for Docker to be ready
-          echo "Waiting for Docker daemon to restart..."
-          sleep 15
-          
-          # Verify Docker is running
-          docker info
-          
-          # Login to JFrog Docker registry using HTTP
-          echo "Logging into JFrog Docker registry..."
-          echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
-          
-          # Push to oa-onlysaid-app-docker-dev-local repository
+          # Push to oa-onlysaid-app-docker-dev-local repository with retries
           echo "Pushing images to oa-onlysaid-app-docker-dev-local..."
-          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
-          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
-          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
-          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
+          
+          # Function to push with retry
+          push_with_retry() {
+            local image=$1
+            local max_attempts=3
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Attempt $attempt/$max_attempts: Pushing $image"
+              if timeout 300s docker push "$image"; then
+                echo "✅ Successfully pushed $image"
+                return 0
+              else
+                echo "❌ Failed to push $image (attempt $attempt/$max_attempts)"
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "Waiting 30 seconds before retry..."
+                  sleep 30
+                fi
+                attempt=$((attempt + 1))
+              fi
+            done
+            
+            echo "❌ Failed to push $image after $max_attempts attempts"
+            return 1
+          }
+          
+          # Push each image with retry logic
+          push_with_retry "${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}" || exit 1
+          push_with_retry "${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}" || exit 1
+          push_with_retry "${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}" || exit 1
+          push_with_retry "${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}" || exit 1
+          
           echo "✅ All Docker images uploaded successfully"
+        timeout-minutes: 20
         
       - name: Upload Electron Installers to JFrog Artifactory
         run: |
