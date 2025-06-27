@@ -335,7 +335,40 @@ jobs:
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Login to JFrog Docker registry
+          # Configure Docker for insecure registry (HTTP)
+          REGISTRY_HOST=$(echo "${{ env.DOCKER_REGISTRY }}" | cut -d'/' -f1)
+          echo "Configuring Docker daemon for insecure registry: $REGISTRY_HOST"
+          
+          # Create or update Docker daemon configuration
+          sudo mkdir -p /etc/docker
+          if [ -f /etc/docker/daemon.json ]; then
+            # Backup existing config
+            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
+            # Add insecure registry to existing config using jq
+            if command -v jq &> /dev/null; then
+              sudo jq --arg registry "$REGISTRY_HOST" '.["insecure-registries"] += [$registry]' /etc/docker/daemon.json > /tmp/daemon.json
+              sudo mv /tmp/daemon.json /etc/docker/daemon.json
+            else
+              # Fallback if jq is not available
+              echo "{\"insecure-registries\": [\"$REGISTRY_HOST\"]}" | sudo tee /etc/docker/daemon.json
+            fi
+          else
+            # Create new config
+            echo "{\"insecure-registries\": [\"$REGISTRY_HOST\"]}" | sudo tee /etc/docker/daemon.json
+          fi
+          
+          # Restart Docker daemon to apply changes
+          sudo systemctl restart docker
+          
+          # Wait for Docker to be ready
+          echo "Waiting for Docker daemon to restart..."
+          sleep 15
+          
+          # Verify Docker is running
+          docker info
+          
+          # Login to JFrog Docker registry using HTTP
+          echo "Logging into JFrog Docker registry..."
           echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
           
           # Push to oa-onlysaid-app-docker-dev-local repository
