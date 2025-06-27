@@ -459,3 +459,4 @@ jobs:
           action: 'remove'
           jfrog-url: ${{ secrets.JFROG_URL }}
           jfrog-token: ${{ secrets.JFROG_TOKEN }}
+        continue-on-error: true
