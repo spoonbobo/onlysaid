@@ -144,7 +144,8 @@ jobs:
         run: |
           cd onlysaid-electron
           echo "Running Electron ESLint..."
-          npm run lint
+          # Use npx to ensure we're using the local ESLint with local config
+          npx eslint . --ext .js,.jsx,.ts,.tsx
           echo "✅ Electron ESLint passed"
           
       - name: Run tests (Next.js)
