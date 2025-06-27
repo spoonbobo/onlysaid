@@ -107,11 +107,10 @@ jobs:
           fi
         timeout-minutes: 1
         
-      # 6. Dependency Management
+      # 6. Dependency Management (simplified)
       - name: Configure npm for public registry
         run: |
           echo "Using public npm registry"
-          # No custom .npmrc needed - npm uses public registry by default
           echo "✅ Using default npm configuration"
         
       - name: Install dependencies (Next.js)
@@ -123,10 +122,6 @@ jobs:
           npm config set fetch-retry-mintimeout 10000
           npm config set fetch-retry-maxtimeout 60000
           npm config set fetch-retries 3
-          
-          # Test npm registry connectivity
-          echo "Testing npm registry connectivity..."
-          timeout 30s npm ping
           
           echo "Installing dependencies with npm ci..."
           npm ci --prefer-offline --no-audit
