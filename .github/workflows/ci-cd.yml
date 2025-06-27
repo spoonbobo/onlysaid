@@ -105,69 +105,28 @@ jobs:
         with:
           node-version: '20'
           
-      # 5. Install JFrog CLI and configure properly
+      # 5. Install JFrog CLI if not available
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
-        
-      - name: "[CONFIG] Configure JFrog CLI"
-        run: |
-          echo "🔧 Configuring JFrog CLI..."
-          
-          # Configure JFrog CLI with explicit server configuration
-          jfrog config add artifactory \
-            --url="${JFROG_URL}" \
-            --access-token="${JFROG_TOKEN}" \
-            --interactive=false \
-            --overwrite
-          
-          # Test the configuration
-          echo "Testing JFrog CLI configuration..."
-          jfrog rt ping --server-id=artifactory
-          
-          # Set default server
-          export JFROG_SERVER_ID=artifactory
-          echo "JFROG_SERVER_ID=artifactory" >> $GITHUB_ENV
-          
-          echo "✅ JFrog CLI configured successfully"
-        timeout-minutes: 2
         
       - name: "[CONFIG] JFrog connectivity"
         run: |
           echo "🔗 Testing JFrog connectivity..."
           
-          # Extract domain for testing
-          JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
-          
-          # Test JFrog connectivity with multiple endpoints
-          echo "Testing JFrog server accessibility..."
-          
-          if timeout 30s curl -f -s --connect-timeout 10 --max-time 30 "${JFROG_URL}/artifactory/api/system/ping" > /dev/null; then
-            echo "✅ JFrog Artifactory API is accessible"
-          elif timeout 30s curl -f -s --connect-timeout 10 --max-time 30 "${JFROG_URL}/api/system/ping" > /dev/null; then
-            echo "✅ JFrog API is accessible (alternative endpoint)"
+          # Test JFrog connectivity - MUST succeed
+          if curl -f -s --connect-timeout 30 --max-time 30 "${JFROG_URL}/artifactory/api/system/ping" > /dev/null; then
+            echo "✅ JFrog server is accessible from self-hosted runner"
+            echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
           else
             echo "❌ Cannot reach JFrog server from self-hosted runner"
-            echo "Testing basic connectivity..."
-            timeout 10s curl -v "${JFROG_URL}" || echo "Basic connectivity test failed"
             echo "Please verify:"
             echo "1. Runner has internet connectivity"
             echo "2. JFrog URL is correct: ${JFROG_URL}"
-            echo "3. JFrog domain: ${JFROG_DOMAIN}"
-            echo "4. Network/firewall allows outbound connections"
-            echo "5. JFrog service is running"
+            echo "3. Network/firewall allows outbound connections"
+            echo "4. JFrog service is running"
             exit 1
           fi
-          
-          # Test Docker registry connectivity
-          echo "Testing Docker registry connectivity..."
-          if timeout 30s curl -f -s --connect-timeout 10 --max-time 30 "https://${JFROG_DOMAIN}/v2/" > /dev/null; then
-            echo "✅ Docker registry endpoint is accessible"
-            echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
-          else
-            echo "⚠️ Docker registry endpoint test failed, but will attempt login anyway"
-            echo "JFROG_ACCESSIBLE=partial" >> $GITHUB_ENV
-          fi
-        timeout-minutes: 2
+        timeout-minutes: 1
         
       # 6. Dependency Management (simplified)
       - name: "[DEPS] Next.js dependencies"
@@ -307,13 +266,9 @@ jobs:
         with:
           images: ${{ env.DOCKER_REGISTRY }}/onlysaid-app
           tags: |
-            type=raw,value=dev-${{ env.BUILD_VERSION }}
-            type=raw,value=dev-latest,enable={{is_default_branch}}
-          labels: |
-            org.opencontainers.image.title=OnlySaid App
-            org.opencontainers.image.description=OnlySaid Application
-            org.opencontainers.image.version=${{ env.BUILD_VERSION }}
-            org.opencontainers.image.revision=${{ github.sha }}
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=dev-latest
             
       # Build Docker Images
       - name: "[DOCKER] Container images"
@@ -374,143 +329,22 @@ jobs:
         run: |
           echo "Uploading to JFrog..."
           
-          # Clean up any existing images first to avoid conflicts
-          echo "Cleaning up existing Docker images..."
-          docker image prune -f
-          
-          # Load images
-          echo "Loading Docker images from tar files..."
+          # Load and tag images
           docker load < /tmp/onlysaid-app.tar
           docker load < /tmp/onlysaid-socket.tar
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # List loaded images for verification
-          echo "Loaded images:"
-          docker images | grep "103.1.32.206:8080/oa-onlysaid-app-docker-dev-local"
+          # Login to JFrog Docker registry
+          echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
           
-          # Extract the domain from JFROG_URL for Docker registry login
-          JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
-          echo "Docker registry domain: ${JFROG_DOMAIN}"
-          
-          # Method 1: Try JFrog CLI docker login
-          echo "Attempting JFrog CLI Docker login..."
-          if timeout 60s jfrog rt docker-login "${JFROG_DOMAIN}" --server-id=artifactory; then
-            echo "✅ JFrog CLI Docker login successful"
-            LOGIN_SUCCESS=true
-          else
-            echo "⚠️ JFrog CLI Docker login failed, trying manual login..."
-            LOGIN_SUCCESS=false
-          fi
-          
-          # Method 2: Manual Docker login if JFrog CLI failed
-          if [ "$LOGIN_SUCCESS" = false ]; then
-            echo "Attempting manual Docker login..."
-            
-            # Try with access token as password
-            if echo "${{ secrets.JFROG_TOKEN }}" | timeout 60s docker login "${JFROG_DOMAIN}" -u admin --password-stdin; then
-              echo "✅ Manual Docker login successful"
-              LOGIN_SUCCESS=true
-            else
-              echo "❌ Manual Docker login failed"
-              
-              # Try alternative username (sometimes it's the email or different format)
-              echo "Trying alternative login methods..."
-              if timeout 60s docker login "${JFROG_DOMAIN}" -u admin -p "${{ secrets.JFROG_TOKEN }}"; then
-                echo "✅ Alternative Docker login successful"
-                LOGIN_SUCCESS=true
-              else
-                echo "❌ All Docker login methods failed"
-                echo "Debug information:"
-                echo "JFROG_URL: ${JFROG_URL}"
-                echo "JFROG_DOMAIN: ${JFROG_DOMAIN}"
-                echo "Token length: ${#JFROG_TOKEN}"
-                
-                # Try to get more information about the registry
-                timeout 30s curl -v "https://${JFROG_DOMAIN}/v2/" || echo "Registry endpoint not accessible"
-                exit 1
-              fi
-            fi
-          fi
-          
-          if [ "$LOGIN_SUCCESS" = false ]; then
-            echo "❌ Failed to login to Docker registry"
-            exit 1
-          fi
-          
-          echo "✅ Successfully logged into Docker registry"
-          
-          # Push to oa-onlysaid-app-docker-dev-local repository with retries
+          # Push to oa-onlysaid-app-docker-dev-local repository
           echo "Pushing images to oa-onlysaid-app-docker-dev-local..."
-          
-          # Function to push with retry
-          push_with_retry() {
-            local image=$1
-            local max_attempts=3
-            local attempt=1
-            
-            while [ $attempt -le $max_attempts ]; do
-              echo "Attempt $attempt/$max_attempts: Pushing $image"
-              if timeout 300s docker push "$image"; then
-                echo "✅ Successfully pushed $image"
-                return 0
-              else
-                echo "❌ Failed to push $image (attempt $attempt/$max_attempts)"
-                if [ $attempt -lt $max_attempts ]; then
-                  echo "Waiting 30 seconds before retry..."
-                  sleep 30
-                fi
-                attempt=$((attempt + 1))
-              fi
-            done
-            
-            echo "❌ Failed to push $image after $max_attempts attempts"
-            return 1
-          }
-          
-          # Get the actual image tags that were loaded
-          APP_IMAGE=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "onlysaid-app" | grep "dev-${{ env.BUILD_VERSION }}" | head -1)
-          SOCKET_IMAGE=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "onlysaid-socket" | grep "dev-${{ env.BUILD_VERSION }}" | head -1)
-          KB_IMAGE=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "onlysaid-kb" | grep "dev-${{ env.BUILD_VERSION }}" | head -1)
-          DOCS_IMAGE=$(docker images --format "table {{.Repository}}:{{.Tag}}" | grep "onlysaid-docs" | grep "dev-${{ env.BUILD_VERSION }}" | head -1)
-          
-          echo "Images to push:"
-          echo "APP: $APP_IMAGE"
-          echo "SOCKET: $SOCKET_IMAGE"
-          echo "KB: $KB_IMAGE"
-          echo "DOCS: $DOCS_IMAGE"
-          
-          # Push each image with retry logic
-          if [ -n "$APP_IMAGE" ]; then
-            push_with_retry "$APP_IMAGE" || exit 1
-          else
-            echo "❌ App image not found"
-            exit 1
-          fi
-          
-          if [ -n "$SOCKET_IMAGE" ]; then
-            push_with_retry "$SOCKET_IMAGE" || exit 1
-          else
-            echo "❌ Socket image not found"
-            exit 1
-          fi
-          
-          if [ -n "$KB_IMAGE" ]; then
-            push_with_retry "$KB_IMAGE" || exit 1
-          else
-            echo "❌ KB image not found"
-            exit 1
-          fi
-          
-          if [ -n "$DOCS_IMAGE" ]; then
-            push_with_retry "$DOCS_IMAGE" || exit 1
-          else
-            echo "❌ Docs image not found"
-            exit 1
-          fi
-          
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
+          docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
           echo "✅ All Docker images uploaded successfully"
-        timeout-minutes: 25
         
       - name: Upload Electron Installers to JFrog Artifactory
         run: |
@@ -524,24 +358,16 @@ jobs:
             exit 1
           fi
           
-          # List available files
-          echo "Available build artifacts:"
-          ls -la
-          
           # Upload all built installers to electron dev repository
           UPLOADED_COUNT=0
           for file in *.exe *.dmg *.AppImage *.deb *.rpm; do
             if [ -f "$file" ]; then
               echo "Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
-              if jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
-                --server-id=artifactory \
+              jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
+                --server-id="${JFROG_SERVER_ID:-artifactory}" \
                 --build-name="OnlySaid-Electron" \
-                --build-number="${{ env.BUILD_NUMBER }}"; then
-                echo "✅ Successfully uploaded $file"
-                UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
-              else
-                echo "❌ Failed to upload $file"
-              fi
+                --build-number="${{ env.BUILD_NUMBER }}"
+              UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
             fi
           done
           
@@ -551,7 +377,6 @@ jobs:
           fi
           
           echo "✅ Successfully uploaded $UPLOADED_COUNT Electron installers"
-        timeout-minutes: 10
         
       # Store artifacts for potential manual download/testing
       - name: Upload Build Artifacts
@@ -634,10 +459,6 @@ jobs:
             echo "Cleaning up JFrog configuration..."
             jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
           fi
-          
-          # Logout from Docker registry
-          JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
-          docker logout "${JFROG_DOMAIN}" || echo "Docker logout failed"
           
           # Clean up Docker images to save space
           echo "Cleaning up Docker images..."
