@@ -93,6 +93,13 @@ jobs:
         run: |
           echo "🔧 Configuring Docker daemon for insecure registry..."
           
+          # Install jq if not available
+          if ! command -v jq &> /dev/null; then
+            echo "Installing jq..."
+            sudo apt-get update -qq
+            sudo apt-get install -y jq
+          fi
+          
           # Create or update Docker daemon configuration
           DOCKER_CONFIG_DIR="/etc/docker"
           DOCKER_DAEMON_JSON="$DOCKER_CONFIG_DIR/daemon.json"
@@ -108,7 +115,7 @@ jobs:
             echo "Existing daemon.json found, backing up..."
             sudo cp "$DOCKER_DAEMON_JSON" "$DOCKER_DAEMON_JSON.backup.$(date +%s)"
             
-            # Add insecure-registries to existing config
+            # Add insecure-registries to existing config using jq
             sudo jq --arg registry "$REGISTRY_DOMAIN" '.["insecure-registries"] |= if . then (. + [$registry] | unique) else [$registry] end' "$DOCKER_DAEMON_JSON" > /tmp/daemon.json
             sudo mv /tmp/daemon.json "$DOCKER_DAEMON_JSON"
           else
