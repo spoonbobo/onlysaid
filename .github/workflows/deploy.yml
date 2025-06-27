@@ -1,0 +1,75 @@
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      build-version:
+        required: true
+        type: string
+      environment:
+        required: false
+        type: string
+        default: 'dev'
+  push:
+    branches:
+      - development
+    # Only run deployment on push to development
+
+env:
+  BUILD_VERSION: ${{ inputs.build-version || github.sha }}
+  DOCKER_REGISTRY: ${{ secrets.JFROG_URL }}/oa-onlysaid-app-docker-dev-local
+  ENVIRONMENT: ${{ inputs.environment || 'dev' }}
+
+jobs:
+  deploy:
+    name: Deploy to ${{ inputs.environment || 'dev' }} Environment
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/development'
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      # Generate deployment manifests
+      - name: Generate deployment manifests
+        run: |
+          echo "Generating Kubernetes deployment manifests..."
+          mkdir -p k8s-manifests
+          
+          # Create deployment manifest template
+          cat > k8s-manifests/onlysaid-app-deployment.yaml << EOF
+          apiVersion: apps/v1
+          kind: Deployment
+          metadata:
+            name: onlysaid-app-${{ env.ENVIRONMENT }}
+            namespace: onlysaid-${{ env.ENVIRONMENT }}
+          spec:
+            replicas: 1
+            selector:
+              matchLabels:
+                app: onlysaid-app-${{ env.ENVIRONMENT }}
+            template:
+              metadata:
+                labels:
+                  app: onlysaid-app-${{ env.ENVIRONMENT }}
+              spec:
+                containers:
+                - name: onlysaid-app
+                  image: ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
+                  ports:
+                  - containerPort: 3000
+          EOF
+          
+      - name: Upload Kubernetes Manifests
+        uses: actions/upload-artifact@v4
+        with:
+          name: k8s-manifests-${{ env.BUILD_VERSION }}
+          path: k8s-manifests/
+          retention-days: 7
+          
+      # Add actual deployment steps here (kubectl apply, helm deploy, etc.)
+      - name: Deploy to Environment
+        run: |
+          echo "Deployment to ${{ env.ENVIRONMENT }} environment would happen here"
+          echo "Using image: ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}"
+          # Add your actual deployment commands here 

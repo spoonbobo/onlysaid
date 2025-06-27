@@ -1,0 +1,106 @@
+name: Build Docker Images
+
+on:
+  push:
+    branches:
+      - development
+  pull_request:
+    branches:
+      - development
+  workflow_call:
+    inputs:
+      build-version:
+        required: true
+        type: string
+    outputs:
+      docker-tags:
+        description: "Docker image tags"
+        value: ${{ jobs.build-docker.outputs.docker-tags }}
+
+env:
+  BUILD_VERSION: ${{ inputs.build-version || github.sha }}
+  DOCKER_REGISTRY: ${{ secrets.JFROG_URL }}/oa-onlysaid-app-docker-dev-local
+
+jobs:
+  build-docker:
+    name: Build Docker Images
+    runs-on: ubuntu-latest
+    
+    outputs:
+      docker-tags: ${{ steps.docker-meta.outputs.tags }}
+      
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      # Docker Setup
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Extract Docker metadata
+        id: docker-meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.DOCKER_REGISTRY }}/onlysaid-app
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=dev-latest
+            
+      # Build Docker Images in parallel
+      - name: Build Next.js Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.next
+          platforms: linux/amd64
+          push: false
+          tags: ${{ steps.docker-meta.outputs.tags }}
+          labels: ${{ steps.docker-meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-app.tar
+          
+      - name: Build Socket Server Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./socket_server
+          file: ./socket_server/Dockerfile.socket_server
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-socket.tar
+          
+      - name: Build Knowledge Base Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.kb
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-kb.tar
+          
+      - name: Build Documentation Docker Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./docker/Dockerfile.docs
+          platforms: linux/amd64
+          push: false
+          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          outputs: type=docker,dest=/tmp/onlysaid-docs.tar
+          
+      # Upload Docker artifacts
+      - name: Upload Docker Images
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images-${{ env.BUILD_VERSION }}
+          path: /tmp/*.tar
+          retention-days: 7 

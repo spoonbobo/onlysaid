@@ -5,6 +5,8 @@ storage/*
 mcp/servers/*
 stt/results/*
 *.PNG
+.secrets
+bin/
 
 # Python cache files
 *.pyc
