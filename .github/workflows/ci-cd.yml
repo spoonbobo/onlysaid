@@ -66,6 +66,15 @@ jobs:
             echo "DOCKER_REGISTRY=${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
             echo "ELECTRON_REGISTRY=oa-onlysaid-electron-dev-local" >> $GITHUB_ENV
             
+            # Check if JFrog URL uses HTTP (insecure)
+            if [[ "${JFROG_URL}" == http://* ]]; then
+              echo "⚠️  JFrog URL uses HTTP - configuring Docker for insecure registry"
+              echo "JFROG_INSECURE=true" >> $GITHUB_ENV
+            else
+              echo "✅ JFrog URL uses HTTPS - secure registry"
+              echo "JFROG_INSECURE=false" >> $GITHUB_ENV
+            fi
+            
             echo "✅ Configuration loaded successfully"
             echo "JFrog URL: ${JFROG_URL}"
             echo "Docker Registry: ${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local"
@@ -78,7 +87,51 @@ jobs:
             exit 1
           fi
 
-      # 3. Verify runner environment
+      # 3. Configure Docker for insecure registry if needed
+      - name: "[CONFIG] Docker insecure registry setup"
+        if: env.JFROG_INSECURE == 'true'
+        run: |
+          echo "🔧 Configuring Docker daemon for insecure registry..."
+          
+          # Create or update Docker daemon configuration
+          DOCKER_CONFIG_DIR="/etc/docker"
+          DOCKER_DAEMON_JSON="$DOCKER_CONFIG_DIR/daemon.json"
+          
+          # Create config directory if it doesn't exist
+          sudo mkdir -p "$DOCKER_CONFIG_DIR"
+          
+          # Extract registry domain for insecure-registries
+          REGISTRY_DOMAIN=$(echo "${{ env.DOCKER_REGISTRY }}" | cut -d'/' -f1)
+          
+          # Check if daemon.json exists
+          if [ -f "$DOCKER_DAEMON_JSON" ]; then
+            echo "Existing daemon.json found, backing up..."
+            sudo cp "$DOCKER_DAEMON_JSON" "$DOCKER_DAEMON_JSON.backup.$(date +%s)"
+            
+            # Add insecure-registries to existing config
+            sudo jq --arg registry "$REGISTRY_DOMAIN" '.["insecure-registries"] |= if . then (. + [$registry] | unique) else [$registry] end' "$DOCKER_DAEMON_JSON" > /tmp/daemon.json
+            sudo mv /tmp/daemon.json "$DOCKER_DAEMON_JSON"
+          else
+            echo "Creating new daemon.json with insecure registry configuration..."
+            echo "{
+              \"insecure-registries\": [\"$REGISTRY_DOMAIN\"]
+            }" | sudo tee "$DOCKER_DAEMON_JSON"
+          fi
+          
+          echo "Docker daemon configuration:"
+          sudo cat "$DOCKER_DAEMON_JSON"
+          
+          # Restart Docker daemon to apply changes
+          echo "Restarting Docker daemon..."
+          sudo systemctl restart docker
+          
+          # Wait for Docker to be ready
+          echo "Waiting for Docker daemon to be ready..."
+          timeout 30s bash -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+          
+          echo "✅ Docker configured for insecure registry: $REGISTRY_DOMAIN"
+
+      # 4. Verify runner environment
       - name: "[VERIFY] Runner environment"
         run: |
           echo "🔍 Verifying self-hosted runner environment..."
@@ -99,13 +152,13 @@ jobs:
           git --version
           echo "✅ Environment verification completed"
           
-      # 4. Install Node.js if not available
+      # 5. Install Node.js if not available
       - name: "[SETUP] Node.js and JFrog CLI"
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           
-      # 5. Install JFrog CLI if not available
+      # 6. Install JFrog CLI if not available
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         
@@ -128,7 +181,7 @@ jobs:
           fi
         timeout-minutes: 1
         
-      # 6. Dependency Management (simplified)
+      # 7. Dependency Management (simplified)
       - name: "[DEPS] Next.js dependencies"
         run: |
           echo "Installing Next.js dependencies..."
@@ -168,7 +221,7 @@ jobs:
           echo "✅ Successfully installed Electron dependencies"
         timeout-minutes: 15
           
-      # 7. Quality & Security Scan
+      # 8. Quality & Security Scan
       - name: "[QA] Code quality checks"
         run: |
           echo "Running ESLint and security scan..."
@@ -335,8 +388,14 @@ jobs:
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Login to JFrog Docker registry
-          echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
+          # Login to JFrog Docker registry with proper protocol handling
+          if [ "${{ env.JFROG_INSECURE }}" = "true" ]; then
+            echo "Logging in to insecure JFrog Docker registry..."
+            echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_REGISTRY }}" -u admin --password-stdin
+          else
+            echo "Logging in to secure JFrog Docker registry..."
+            echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
+          fi
           
           # Push to oa-onlysaid-app-docker-dev-local repository
           echo "Pushing images to oa-onlysaid-app-docker-dev-local..."
@@ -453,6 +512,30 @@ jobs:
         if: always()
         run: |
           echo "🧹 Cleaning up..."
+          
+          # Restore Docker daemon configuration if we modified it
+          if [ "${{ env.JFROG_INSECURE }}" = "true" ]; then
+            echo "Restoring Docker daemon configuration..."
+            DOCKER_DAEMON_JSON="/etc/docker/daemon.json"
+            BACKUP_FILE="${DOCKER_DAEMON_JSON}.backup.*"
+            
+            # Find the most recent backup
+            LATEST_BACKUP=$(ls -t ${BACKUP_FILE} 2>/dev/null | head -n1)
+            if [ -n "$LATEST_BACKUP" ] && [ -f "$LATEST_BACKUP" ]; then
+              echo "Restoring from backup: $LATEST_BACKUP"
+              sudo cp "$LATEST_BACKUP" "$DOCKER_DAEMON_JSON"
+              sudo rm -f ${BACKUP_FILE}
+              sudo systemctl restart docker
+              timeout 30s bash -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+              echo "✅ Docker daemon configuration restored"
+            else
+              echo "No backup found, removing daemon.json..."
+              sudo rm -f "$DOCKER_DAEMON_JSON"
+              sudo systemctl restart docker
+              timeout 30s bash -c 'until docker info >/dev/null 2>&1; do sleep 1; done'
+              echo "✅ Docker daemon configuration reset"
+            fi
+          fi
           
           # Clean up JFrog configuration
           if [ -n "${JFROG_SERVER_ID}" ]; then
