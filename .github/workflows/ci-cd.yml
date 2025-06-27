@@ -38,23 +38,6 @@ jobs:
         with:
           fetch-depth: 0  # Full history for proper versioning
           
-      # 2. Add IP to JFrog allowlist FIRST
-      - name: Add IP to JFrog allowlist
-        if: env.JFROG_CONFIGURED == 'true'
-        run: |
-          RUNNER_IP=$(curl -s https://api.ipify.org)
-          echo "Current runner IP: $RUNNER_IP"
-          echo "Adding IP to JFrog allowlist..."
-          
-          curl -s -X PUT \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${{ secrets.JFROG_TOKEN }}" \
-            -d "{\"allowedIps\": [\"$RUNNER_IP/32\"]}" \
-            "${{ secrets.JFROG_URL }}/artifactory/api/system/security/ipRestrictions" && \
-          echo "✅ IP added successfully" || \
-          echo "❌ Failed to add IP (this may be expected)"
-        continue-on-error: true
-        
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
@@ -74,6 +57,23 @@ jobs:
             echo "JFrog credentials not available, skipping JFrog steps"
             echo "JFROG_CONFIGURED=false" >> $GITHUB_ENV
           fi
+        continue-on-error: true
+        
+      # NOW add IP to JFrog allowlist AFTER JFROG_CONFIGURED is set
+      - name: Add IP to JFrog allowlist
+        if: env.JFROG_CONFIGURED == 'true'
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "Current runner IP: $RUNNER_IP"
+          echo "Adding IP to JFrog allowlist..."
+          
+          curl -s -X PUT \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_TOKEN }}" \
+            -d "{\"allowedIps\": [\"$RUNNER_IP/32\"]}" \
+            "${{ secrets.JFROG_URL }}/artifactory/api/system/security/ipRestrictions" && \
+          echo "✅ IP added successfully" || \
+          echo "❌ Failed to add IP (this may be expected)"
         continue-on-error: true
         
       # 2. Dependency Management - Updated to use your npm virtual repo
