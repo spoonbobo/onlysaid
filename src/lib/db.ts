@@ -2,6 +2,8 @@ import knex, { Knex } from 'knex';
 
 export const DBTABLES = {
     CHATROOM: 'chat',
+    CHAT_MEMBERS: 'chat_members',
+    MESSAGES: 'messages',
     PLANS: 'plans',
     TASKS: 'tasks',
     LOGS: 'logs',
@@ -13,6 +15,7 @@ export const DBTABLES = {
     WORKSPACE_INVITATIONS: 'workspace_invitations',
     WORKSPACE_SETTINGS: 'workspace_settings',
     KNOWLEDGE_BASES: 'knowledge_bases',
+    KNOWLEDGE_BASE_MEMBERS: 'knowledge_base_members',
     FILES: 'files',
     USER_DEVICES: 'user_devices'
 }

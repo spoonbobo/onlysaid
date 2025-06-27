@@ -29,3 +29,13 @@ CREATE TABLE IF NOT EXISTS messages (
     contact UUID,
     gif UUID
 );
+
+-- Updated chat_members table
+CREATE TABLE IF NOT EXISTS chat_members (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    chat_id UUID NOT NULL REFERENCES chat(id) ON DELETE CASCADE,
+    user_id UUID NOT NULL,
+    joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+    role TEXT DEFAULT 'member' CHECK (role IN ('member', 'admin', 'super_admin')),
+    UNIQUE(chat_id, user_id)
+);
