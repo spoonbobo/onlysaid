@@ -201,6 +201,26 @@ jobs:
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET || '' }}
         run: |
           echo "Building Electron application..."
+          echo "Current working directory: $(pwd)"
+          echo "Directory contents:"
+          ls -la
+          echo "Checking if package.json exists:"
+          if [ -f "package.json" ]; then
+            echo "✅ package.json found"
+            echo "Available npm scripts:"
+            npm run
+          else
+            echo "❌ package.json not found"
+            exit 1
+          fi
+          echo "Checking node_modules:"
+          if [ -d "node_modules" ]; then
+            echo "✅ node_modules directory exists"
+          else
+            echo "❌ node_modules directory missing"
+            echo "Re-running npm install..."
+            npm install
+          fi
           npm run package
           echo "✅ Electron build completed successfully"
           
