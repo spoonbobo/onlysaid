@@ -48,15 +48,15 @@ jobs:
           echo "Available disk space:"
           df -h
           echo "Docker version:"
-          docker --version || echo "⚠️ Docker not installed"
+          docker --version
           echo "Node.js version:"
-          node --version || echo "⚠️ Node.js not installed"
+          node --version
           echo "npm version:"
-          npm --version || echo "⚠️ npm not installed"
+          npm --version
           echo "JFrog CLI version:"
-          jfrog --version || echo "⚠️ JFrog CLI not installed"
+          jfrog --version
           echo "Git version:"
-          git --version || echo "⚠️ Git not installed"
+          git --version
           echo "✅ Environment verification completed"
           
       # 3. Install Node.js if not available
@@ -86,9 +86,10 @@ jobs:
         run: |
           echo "🔗 Testing JFrog connectivity from self-hosted runner..."
           
-          # Test JFrog connectivity with better error handling
+          # Test JFrog connectivity - MUST succeed
           if curl -f -s --connect-timeout 30 --max-time 30 "${{ secrets.JFROG_URL }}/artifactory/api/system/ping" > /dev/null; then
             echo "✅ JFrog server is accessible from self-hosted runner"
+            echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
           else
             echo "❌ Cannot reach JFrog server from self-hosted runner"
             echo "Please verify:"
@@ -127,9 +128,7 @@ jobs:
           
           # Test npm registry connectivity
           echo "Testing npm registry connectivity..."
-          if ! timeout 30s npm ping; then
-            echo "⚠️ npm ping failed, but continuing with installation..."
-          fi
+          timeout 30s npm ping
           
           echo "Installing dependencies with npm ci..."
           npm ci --prefer-offline --no-audit
@@ -154,9 +153,7 @@ jobs:
           
           # Test connectivity
           echo "Testing npm registry connectivity for Electron..."
-          if ! timeout 30s npm ping; then
-            echo "⚠️ npm ping failed, but continuing with installation..."
-          fi
+          timeout 30s npm ping
           
           echo "Installing Electron dependencies with npm ci..."
           npm ci --prefer-offline --no-audit
@@ -169,7 +166,6 @@ jobs:
           echo "Running Next.js ESLint..."
           npm run lint
           echo "✅ Next.js ESLint passed"
-        continue-on-error: true
         
       - name: Run ESLint (Electron)
         run: |
@@ -177,7 +173,6 @@ jobs:
           echo "Running Electron ESLint..."
           npm run lint
           echo "✅ Electron ESLint passed"
-        continue-on-error: true
           
       - name: Run tests (Next.js)
         run: |
@@ -192,20 +187,14 @@ jobs:
           echo "Running Electron tests..."
           npm test
           echo "✅ Electron tests passed"
-        continue-on-error: true
           
       - name: JFrog Security Scan
         run: |
           echo "Running JFrog security scan..."
-          if curl -f -s --connect-timeout 30 "${{ secrets.JFROG_URL }}/artifactory/api/system/ping" > /dev/null; then
-            echo "JFrog server is accessible, running security scan..."
-            timeout 120s jfrog audit --server-id=artifactory || echo "⚠️ Security scan completed with warnings"
-            echo "✅ JFrog security scan completed"
-          else
-            echo "⚠️ JFrog server not accessible, skipping security scan"
-          fi
+          echo "JFrog server is accessible, running security scan..."
+          timeout 120s jfrog audit --server-id=artifactory
+          echo "✅ JFrog security scan completed"
         timeout-minutes: 3
-        continue-on-error: true
         
       # 8. Build Artifacts
       - name: Build Next.js Application
@@ -229,7 +218,7 @@ jobs:
           fi
           echo "✅ onlysaid-electron directory found"
           
-      - name: Build Electron Application (Linux)
+      - name: Build Electron Application
         working-directory: ./onlysaid-electron
         env:
           KB_BASE_URL: ${{ secrets.KB_BASE_URL || 'http://onlysaid-dev.com/api/kb/' }}
@@ -240,26 +229,9 @@ jobs:
           GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID || '' }}
           GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET || '' }}
         run: |
-          echo "Building Electron application for Linux..."
-          npm run package:linux || echo "⚠️ Linux build may have failed, continuing..."
-          echo "✅ Electron Linux build attempted"
-        continue-on-error: true
-          
-      - name: Build Electron Application (All Platforms)
-        working-directory: ./onlysaid-electron
-        env:
-          KB_BASE_URL: ${{ secrets.KB_BASE_URL || 'http://onlysaid-dev.com/api/kb/' }}
-          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID || '' }}
-          ONLYSAID_API_URL: ${{ secrets.ONLYSAID_API_URL || 'https://api.onlysaid.com' }}
-          ONLYSAID_DOMAIN: ${{ secrets.ONLYSAID_DOMAIN || 'https://onlysaid.com' }}
-          SOCKET_SERVER_URL: ${{ secrets.SOCKET_SERVER_URL || 'http://localhost:3001' }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID || '' }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET || '' }}
-        run: |
-          echo "Building Electron application for all platforms..."
-          npm run package || echo "⚠️ Multi-platform build may have failed, continuing..."
-          echo "✅ Electron multi-platform build attempted"
-        continue-on-error: true
+          echo "Building Electron application..."
+          npm run package
+          echo "✅ Electron build completed successfully"
           
       # 9. Docker Setup and Build
       - name: Set up Docker Buildx
@@ -346,24 +318,17 @@ jobs:
           docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
           docker push ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
           echo "✅ All Docker images uploaded successfully"
-        continue-on-error: true
         
       - name: Upload Electron Installers to JFrog Artifactory
         run: |
           echo "Uploading Electron installers to oa-onlysaid-electron-dev-local..."
           
-          cd onlysaid-electron/release/build || {
-            echo "⚠️ Electron build directory not found, checking for alternative paths..."
-            find onlysaid-electron -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.rpm" 2>/dev/null || {
-              echo "⚠️ No Electron installers found, skipping upload"
-              exit 0
-            }
-          }
+          cd onlysaid-electron/release/build
           
           # Verify that build artifacts exist
-          if [ ! "$(ls -A . 2>/dev/null)" ]; then
-            echo "⚠️ No Electron build artifacts found in current directory"
-            exit 0
+          if [ ! "$(ls -A .)" ]; then
+            echo "❌ No Electron build artifacts found"
+            exit 1
           fi
           
           # Upload all built installers to electron dev repository
@@ -374,17 +339,17 @@ jobs:
               jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
                 --server-id=artifactory \
                 --build-name="OnlySaid-Electron" \
-                --build-number="${{ env.BUILD_NUMBER }}" || echo "⚠️ Failed to upload $file"
+                --build-number="${{ env.BUILD_NUMBER }}"
               UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
             fi
           done
           
           if [ $UPLOADED_COUNT -eq 0 ]; then
-            echo "⚠️ No Electron installers were uploaded"
-          else
-            echo "✅ Successfully uploaded $UPLOADED_COUNT Electron installers"
+            echo "❌ No Electron installers were uploaded"
+            exit 1
           fi
-        continue-on-error: true
+          
+          echo "✅ Successfully uploaded $UPLOADED_COUNT Electron installers"
         
       # Store artifacts for potential manual download/testing
       - name: Upload Build Artifacts
@@ -393,7 +358,6 @@ jobs:
           name: docker-images-${{ env.BUILD_VERSION }}
           path: /tmp/*.tar
           retention-days: 7
-        continue-on-error: true
           
       - name: Upload Electron Installers
         uses: actions/upload-artifact@v4
@@ -401,7 +365,6 @@ jobs:
           name: electron-installers-${{ env.BUILD_VERSION }}
           path: onlysaid-electron/release/build/*
           retention-days: 7
-        continue-on-error: true
           
       # 11. Deploy to Dev Environment
       - name: Generate deployment manifests
@@ -440,7 +403,6 @@ jobs:
           name: k8s-manifests-${{ env.BUILD_VERSION }}
           path: k8s-manifests/
           retention-days: 7
-        continue-on-error: true
           
       # Summary
       - name: Build Summary
@@ -451,11 +413,12 @@ jobs:
           echo "- **Runner Type:** Self-hosted Linux" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner Host:** $(hostname)" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Configured:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **JFrog Accessible:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Registry:** oa-onlysaid-app-docker-dev-local" >> $GITHUB_STEP_SUMMARY
           echo "- **Electron Registry:** oa-onlysaid-electron-dev-local" >> $GITHUB_STEP_SUMMARY
           echo "- **NPM Registry:** oa-npm (virtual)" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Images Built:** ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- **Electron Build Attempted:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Electron Build Completed:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Artifacts Published to JFrog:** ✅" >> $GITHUB_STEP_SUMMARY
 
       # 12. Cleanup workspace (important for self-hosted runners)
@@ -466,26 +429,25 @@ jobs:
           
           # Clean up Docker images to save space
           echo "Cleaning up Docker images..."
-          docker system prune -f || echo "Docker cleanup failed"
+          docker system prune -f
           
           # Clean up npm cache
           echo "Cleaning npm cache..."
-          npm cache clean --force || echo "npm cache cleanup failed"
+          npm cache clean --force
           
           # Clean up node_modules to save space (will be reinstalled next run)
           echo "Cleaning node_modules..."
-          rm -rf node_modules || echo "node_modules cleanup failed"
-          rm -rf onlysaid-electron/node_modules || echo "electron node_modules cleanup failed"
+          rm -rf node_modules
+          rm -rf onlysaid-electron/node_modules
           
           # Clean up build artifacts
           echo "Cleaning build artifacts..."
-          rm -rf .next || echo ".next cleanup failed"
-          rm -rf onlysaid-electron/release || echo "electron release cleanup failed"
-          rm -rf /tmp/onlysaid-*.tar || echo "Docker tar cleanup failed"
+          rm -rf .next
+          rm -rf onlysaid-electron/release
+          rm -rf /tmp/onlysaid-*.tar
           
           # Clean up temporary files
           echo "Cleaning temporary files..."
-          rm -rf .npmrc || echo ".npmrc cleanup failed"
+          rm -rf .npmrc
           
           echo "✅ Workspace cleanup completed"
-        continue-on-error: true
