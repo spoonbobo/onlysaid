@@ -108,19 +108,11 @@ jobs:
         timeout-minutes: 1
         
       # 6. Dependency Management
-      - name: Configure npm for JFrog Artifactory
+      - name: Configure npm for public registry
         run: |
-          echo "Setting up .npmrc for JFrog Artifactory npm proxy"
-          
-          # Extract hostname from JFROG_URL for npmrc
-          JFROG_HOST=$(echo "${{ secrets.JFROG_URL }}" | sed 's|https\?://||')
-          
-          cat > .npmrc << EOF
-          registry=${{ secrets.JFROG_URL }}/artifactory/api/npm/oa-npm/
-          //${JFROG_HOST}/artifactory/api/npm/oa-npm/:_authToken=${{ secrets.JFROG_TOKEN }}
-          //${JFROG_HOST}/artifactory/api/npm/oa-npm/:always-auth=true
-          EOF
-          echo "✅ Created .npmrc for oa-npm virtual repository"
+          echo "Using public npm registry"
+          # No custom .npmrc needed - npm uses public registry by default
+          echo "✅ Using default npm configuration"
         
       - name: Install dependencies (Next.js)
         run: |
