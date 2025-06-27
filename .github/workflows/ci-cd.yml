@@ -40,12 +40,19 @@ jobs:
           
       # 2. Add IP to JFrog allowlist FIRST
       - name: Add IP to JFrog allowlist
-        if: env.JFROG_CLI_URL != '' && env.JFROG_CLI_ACCESS_TOKEN != ''
-        uses: ./.github/actions/jfrog-ip-manager
-        with:
-          action: 'add'
-          jfrog-url: ${{ secrets.JFROG_URL }}
-          jfrog-token: ${{ secrets.JFROG_TOKEN }}
+        if: env.JFROG_CONFIGURED == 'true'
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "Current runner IP: $RUNNER_IP"
+          echo "Adding IP to JFrog allowlist..."
+          
+          curl -s -X PUT \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_TOKEN }}" \
+            -d "{\"allowedIps\": [\"$RUNNER_IP/32\"]}" \
+            "${{ secrets.JFROG_URL }}/artifactory/api/system/security/ipRestrictions" && \
+          echo "✅ IP added successfully" || \
+          echo "❌ Failed to add IP (this may be expected)"
         continue-on-error: true
         
       - name: Set up Node.js
@@ -451,12 +458,19 @@ jobs:
             echo "- **Artifacts Published to JFrog:** ⏸️ (JFrog not configured)" >> $GITHUB_STEP_SUMMARY
           fi
 
-      # LAST STEP: Always remove IP from allowlist
+      # LAST STEP: Remove IP from allowlist
       - name: Remove IP from JFrog allowlist
-        if: always() && env.JFROG_CLI_URL != '' && env.JFROG_CLI_ACCESS_TOKEN != ''
-        uses: ./.github/actions/jfrog-ip-manager
-        with:
-          action: 'remove'
-          jfrog-url: ${{ secrets.JFROG_URL }}
-          jfrog-token: ${{ secrets.JFROG_TOKEN }}
+        if: always() && env.JFROG_CONFIGURED == 'true'
+        run: |
+          RUNNER_IP=$(curl -s https://api.ipify.org)
+          echo "Current runner IP: $RUNNER_IP"
+          echo "Removing IP from JFrog allowlist..."
+          
+          curl -s -X PUT \
+            -H "Content-Type: application/json" \
+            -H "Authorization: Bearer ${{ secrets.JFROG_TOKEN }}" \
+            -d "{\"allowedIps\": []}" \
+            "${{ secrets.JFROG_URL }}/artifactory/api/system/security/ipRestrictions" && \
+          echo "✅ IP removed successfully" || \
+          echo "❌ Failed to remove IP (this may be expected)"
         continue-on-error: true
