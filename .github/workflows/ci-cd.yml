@@ -39,7 +39,46 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # 2. Verify runner environment
+      # 2. Load secrets and configure environment
+      - name: "[CONFIG] Load secrets and configure environment"
+        run: |
+          echo "🔧 Loading configuration from ~/.secrets..."
+          
+          SECRETS_FILE="$HOME/.secrets"
+          if [ -f "$SECRETS_FILE" ]; then
+            echo "Loading environment variables from $SECRETS_FILE..."
+            source "$SECRETS_FILE"
+            
+            # Export to GitHub Actions environment
+            echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
+            echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
+            echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}" >> $GITHUB_ENV
+            echo "KB_BASE_URL=${KB_BASE_URL}" >> $GITHUB_ENV
+            echo "MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID}" >> $GITHUB_ENV
+            echo "ONLYSAID_API_URL=${ONLYSAID_API_URL}" >> $GITHUB_ENV
+            echo "ONLYSAID_DOMAIN=${ONLYSAID_DOMAIN}" >> $GITHUB_ENV
+            echo "SOCKET_SERVER_URL=${SOCKET_SERVER_URL}" >> $GITHUB_ENV
+            echo "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> $GITHUB_ENV
+            echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> $GITHUB_ENV
+            
+            # Configure Docker registry from JFROG_URL
+            JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
+            echo "DOCKER_REGISTRY=${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
+            echo "ELECTRON_REGISTRY=oa-onlysaid-electron-dev-local" >> $GITHUB_ENV
+            
+            echo "✅ Configuration loaded successfully"
+            echo "JFrog URL: ${JFROG_URL}"
+            echo "Docker Registry: ${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local"
+          else
+            echo "❌ Secrets file not found at $SECRETS_FILE"
+            echo "Current user: $(whoami)"
+            echo "Home directory: $HOME"
+            echo "Files in home directory:"
+            ls -la "$HOME" | grep -E '\.(secrets|env)' || echo "No secrets files found"
+            exit 1
+          fi
+
+      # 3. Verify runner environment
       - name: "[VERIFY] Runner environment"
         run: |
           echo "🔍 Verifying self-hosted runner environment..."
@@ -60,13 +99,13 @@ jobs:
           git --version
           echo "✅ Environment verification completed"
           
-      # 3. Install Node.js if not available
+      # 4. Install Node.js if not available
       - name: "[SETUP] Node.js and JFrog CLI"
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           
-      # 4. Install JFrog CLI if not available
+      # 5. Install JFrog CLI if not available
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
         
@@ -75,14 +114,14 @@ jobs:
           echo "🔗 Testing JFrog connectivity..."
           
           # Test JFrog connectivity - MUST succeed
-          if curl -f -s --connect-timeout 30 --max-time 30 "${{ secrets.JFROG_URL }}/artifactory/api/system/ping" > /dev/null; then
+          if curl -f -s --connect-timeout 30 --max-time 30 "${JFROG_URL}/artifactory/api/system/ping" > /dev/null; then
             echo "✅ JFrog server is accessible from self-hosted runner"
             echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
           else
             echo "❌ Cannot reach JFrog server from self-hosted runner"
             echo "Please verify:"
             echo "1. Runner has internet connectivity"
-            echo "2. JFrog URL is correct: ${{ secrets.JFROG_URL }}"
+            echo "2. JFrog URL is correct: ${JFROG_URL}"
             echo "3. Network/firewall allows outbound connections"
             echo "4. JFrog service is running"
             exit 1
