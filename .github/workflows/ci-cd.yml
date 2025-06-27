@@ -40,7 +40,7 @@ jobs:
           
       # 2. Add IP to JFrog allowlist FIRST
       - name: Add IP to JFrog allowlist
-        if: ${{ secrets.JFROG_URL != '' && secrets.JFROG_TOKEN != '' }}
+        if: env.JFROG_CLI_URL != '' && env.JFROG_CLI_ACCESS_TOKEN != ''
         uses: ./.github/actions/jfrog-ip-manager
         with:
           action: 'add'
@@ -453,7 +453,7 @@ jobs:
 
       # LAST STEP: Always remove IP from allowlist
       - name: Remove IP from JFrog allowlist
-        if: ${{ always() && secrets.JFROG_URL != '' && secrets.JFROG_TOKEN != '' }}
+        if: always() && env.JFROG_CLI_URL != '' && env.JFROG_CLI_ACCESS_TOKEN != ''
         uses: ./.github/actions/jfrog-ip-manager
         with:
           action: 'remove'
