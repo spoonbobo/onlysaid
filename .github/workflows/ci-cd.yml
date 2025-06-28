@@ -3,22 +3,18 @@ name: OnlySaid CI/CD
 on:
   push:
     branches:
-      - disable
+      - development
   pull_request:
     branches:
-      - disable
+      - development
 
 env:
   # Build versioning
   BUILD_VERSION: ${{ github.sha }}
   BUILD_NUMBER: ${{ github.run_number }}
   
-  # JFrog configuration
-  JFROG_CLI_URL: ${{ secrets.JFROG_URL }}
-  JFROG_CLI_ACCESS_TOKEN: ${{ secrets.JFROG_TOKEN }}
-  
-  # Docker registry configuration
-  DOCKER_REGISTRY: ${{ secrets.JFROG_URL }}/oa-onlysaid-app-docker-dev-local
+  # Docker registry configuration (fixed to use HTTP port 8080)
+  DOCKER_REGISTRY_HOST: "1bucket.oneas1a.com:8080"
   ELECTRON_REGISTRY: oa-onlysaid-electron-dev-local
 
 jobs:
@@ -51,7 +47,8 @@ jobs:
             
             # Export to GitHub Actions environment
             echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
-            echo "JFROG_ARTIFACTORY_URL=${JFROG_ARTIFACTORY_URL}" >> $GITHUB_ENV
+            echo "JFROG_USER=${JFROG_USER}" >> $GITHUB_ENV
+            echo "JFROG_USER_PASSWORD=${JFROG_USER_PASSWORD}" >> $GITHUB_ENV
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}" >> $GITHUB_ENV
             echo "KB_BASE_URL=${KB_BASE_URL}" >> $GITHUB_ENV
@@ -62,19 +59,14 @@ jobs:
             echo "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> $GITHUB_ENV
             echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> $GITHUB_ENV
             
-            # Configure Docker registry URLs using Repository Path method
-            # Both JFROG_URL and JFROG_ARTIFACTORY_URL should use the same base URL
-            # since your JFrog setup doesn't use separate ports
-            ARTIFACTORY_HOST=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
-            echo "DOCKER_REGISTRY=${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
-            echo "DOCKER_LOGIN_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
-            echo "ELECTRON_REGISTRY=oa-onlysaid-electron-dev-local" >> $GITHUB_ENV
+            # Configure Docker registry URLs using working format
+            echo "DOCKER_REGISTRY=${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
             echo "JFrog Web URL: ${JFROG_URL}"
-            echo "JFrog Artifactory URL: ${JFROG_URL}"  # Use same URL
-            echo "Docker Registry: ${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local"
-            echo "Docker Login Host: ${ARTIFACTORY_HOST}"
+            echo "Docker Registry Host: ${DOCKER_REGISTRY_HOST}"
+            echo "Docker Registry: ${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
+            echo "JFrog User: ${JFROG_USER}"
           else
             echo "❌ Secrets file not found at $SECRETS_FILE"
             echo "Current user: $(whoami)"
@@ -119,7 +111,7 @@ jobs:
         run: |
           echo "🔗 Testing JFrog connectivity..."
           
-          # Test JFrog web interface connectivity (for API calls)
+          # Test JFrog web interface connectivity (HTTPS for web API)
           WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog web interface: ${WEB_URL}"
           if curl -f -s -k --connect-timeout 30 --max-time 30 "${WEB_URL}" > /dev/null; then
@@ -130,15 +122,15 @@ jobs:
             exit 1
           fi
           
-          # Test JFrog Artifactory connectivity (use same URL as web interface)
-          ARTIFACTORY_URL="${JFROG_URL%/}/artifactory/api/system/ping"
-          echo "Testing JFrog Artifactory: ${ARTIFACTORY_URL}"
-          if curl -f -s -k --connect-timeout 30 --max-time 30 "${ARTIFACTORY_URL}" > /dev/null; then
-            echo "✅ JFrog Artifactory is accessible"
-            echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
+          # Test Docker registry connectivity (HTTP on port 8080)
+          DOCKER_V2_URL="http://${DOCKER_REGISTRY_HOST}/v2/"
+          echo "Testing Docker registry: ${DOCKER_V2_URL}"
+          if curl -f -s -k --connect-timeout 30 --max-time 30 "${DOCKER_V2_URL}" > /dev/null; then
+            echo "✅ Docker registry is accessible"
+            echo "DOCKER_REGISTRY_ACCESSIBLE=true" >> $GITHUB_ENV
           else
-            echo "❌ Cannot reach JFrog Artifactory"
-            echo "Please verify JFrog Artifactory URL: ${JFROG_URL}"
+            echo "❌ Cannot reach Docker registry"
+            echo "Please verify Docker registry: ${DOCKER_REGISTRY_HOST}"
             exit 1
           fi
         timeout-minutes: 2
@@ -171,7 +163,6 @@ jobs:
           npm config set fetch-retry-maxtimeout 60000
           npm config set fetch-retries 3
           
-          # No need to copy .npmrc - using public registry by default
           echo "Using public npm registry for Electron dependencies..."
           
           # Test connectivity
@@ -206,18 +197,10 @@ jobs:
           echo "Skipping Electron tests - will be run during package build"
           echo "✅ Electron tests will be handled by package script"
           
-      # - name: JFrog Security Scan
-      #   run: |
-      #     echo "Running JFrog security scan..."
-      #     echo "JFrog server is accessible, running security scan..."
-      #     timeout 120s jfrog audit --server-id="${JFROG_SERVER_ID:-artifactory}"
-      #     echo "✅ JFrog security scan completed"
-      #   timeout-minutes: 3
-        
       # 9. Build Artifacts
       - name: "[BUILD] Applications"
         env:
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_SECRET_KEY: ${{ env.STRIPE_SECRET_KEY }}
           NODE_ENV: production
         run: |
           echo "Building Next.js and Electron..."
@@ -239,13 +222,13 @@ jobs:
       - name: Build Electron Application
         working-directory: ./onlysaid-electron
         env:
-          KB_BASE_URL: ${{ secrets.KB_BASE_URL || 'http://onlysaid-dev.com/api/kb/' }}
-          MICROSOFT_CLIENT_ID: ${{ secrets.MICROSOFT_CLIENT_ID || '' }}
-          ONLYSAID_API_URL: ${{ secrets.ONLYSAID_API_URL || 'https://api.onlysaeid.com' }}
-          ONLYSAID_DOMAIN: ${{ secrets.ONLYSAID_DOMAIN || 'https://onlysaid.com' }}
-          SOCKET_SERVER_URL: ${{ secrets.SOCKET_SERVER_URL || 'http://localhost:3001' }}
-          GOOGLE_CLIENT_ID: ${{ secrets.GOOGLE_CLIENT_ID || '' }}
-          GOOGLE_CLIENT_SECRET: ${{ secrets.GOOGLE_CLIENT_SECRET || '' }}
+          KB_BASE_URL: ${{ env.KB_BASE_URL || 'http://onlysaid-dev.com/api/kb/' }}
+          MICROSOFT_CLIENT_ID: ${{ env.MICROSOFT_CLIENT_ID || '' }}
+          ONLYSAID_API_URL: ${{ env.ONLYSAID_API_URL || 'https://api.onlysaeid.com' }}
+          ONLYSAID_DOMAIN: ${{ env.ONLYSAID_DOMAIN || 'https://onlysaid.com' }}
+          SOCKET_SERVER_URL: ${{ env.SOCKET_SERVER_URL || 'http://localhost:3001' }}
+          GOOGLE_CLIENT_ID: ${{ env.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ env.GOOGLE_CLIENT_SECRET || '' }}
         run: |
           echo "Building Electron application..."
           echo "Current working directory: $(pwd)"
@@ -285,7 +268,7 @@ jobs:
             type=sha,prefix={{branch}}-
             type=raw,value=dev-latest
             
-      # Build Docker Images
+      # Build Docker Images with correct tags
       - name: "[DOCKER] Container images"
         run: |
           echo "Building Docker images..."
@@ -297,8 +280,7 @@ jobs:
           file: ./docker/Dockerfile.next
           platforms: linux/amd64
           push: false
-          tags: ${{ steps.docker-meta.outputs.tags }}
-          labels: ${{ steps.docker-meta.outputs.labels }}
+          tags: ${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-${{ env.BUILD_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: type=docker,dest=/tmp/onlysaid-app.tar
@@ -310,7 +292,7 @@ jobs:
           file: ./socket_server/Dockerfile.socket_server
           platforms: linux/amd64
           push: false
-          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
+          tags: ${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/onlysaid-socket:dev-${{ env.BUILD_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: type=docker,dest=/tmp/onlysaid-socket.tar
@@ -322,7 +304,7 @@ jobs:
           file: ./docker/Dockerfile.kb
           platforms: linux/amd64
           push: false
-          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
+          tags: ${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/onlysaid-kb:dev-${{ env.BUILD_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: type=docker,dest=/tmp/onlysaid-kb.tar
@@ -334,60 +316,95 @@ jobs:
           file: ./docker/Dockerfile.docs
           platforms: linux/amd64
           push: false
-          tags: ${{ env.DOCKER_REGISTRY }}/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
+          tags: ${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/onlysaid-docs:dev-${{ env.BUILD_VERSION }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           outputs: type=docker,dest=/tmp/onlysaid-docs.tar
           
-      # 11. Publish to Artifactory (Dev Tier)
+      # 11. Publish to Artifactory (Dev Tier) - FIXED
       - name: "[PUBLISH] Upload artifacts"
         run: |
-          echo "Uploading to JFrog..."
+          echo "🚀 Uploading Docker images to JFrog..."
           
-          # Configure Docker to skip TLS verification for JFrog
-          echo "🔧 Configuring Docker to skip TLS verification..."
+          # Configure Docker for HTTP registry (port 8080)
+          echo "🔧 Configuring Docker for HTTP registry..."
           sudo mkdir -p /etc/docker
           
-          # Create daemon.json to skip TLS verification
+          # Backup existing daemon.json if it exists
+          if [ -f /etc/docker/daemon.json ]; then
+            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
+            echo "📋 Existing Docker daemon configuration backed up"
+          fi
+          
+          # Create daemon.json for insecure registry (HTTP)
           sudo tee /etc/docker/daemon.json > /dev/null << EOF
           {
-            "insecure-registries": ["1bucket.oneas1a.com"],
+            "insecure-registries": ["${{ env.DOCKER_REGISTRY_HOST }}"],
             "registry-mirrors": [],
-            "experimental": false
+            "debug": false
           }
           EOF
           
+          echo "📋 Docker daemon configuration:"
+          sudo cat /etc/docker/daemon.json
+          
+          # Restart Docker daemon
+          echo "🔄 Restarting Docker daemon..."
           sudo systemctl restart docker
           sleep 15
+          
+          # Verify Docker is working
+          echo "✅ Verifying Docker status..."
           docker version
           
-          # Load images
+          # Load Docker images from tar files
+          echo "📦 Loading Docker images..."
           docker load < /tmp/onlysaid-app.tar
           docker load < /tmp/onlysaid-socket.tar
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Try Docker login with original URL (port 443)
-          echo "🔐 Attempting Docker login..."
-          if echo "${{ secrets.JFROG_TOKEN }}" | docker login 1bucket.oneas1a.com -u admin --password-stdin; then
+          # Docker login using HTTP registry
+          echo "🔐 Authenticating with JFrog Docker registry..."
+          echo "Login command: docker login ${{ env.DOCKER_REGISTRY_HOST }} -u ${{ env.JFROG_USER }}"
+          
+          if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.DOCKER_REGISTRY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
             echo "✅ Docker login successful"
           else
-            echo "❌ Docker login failed, but continuing with push attempts..."
+            echo "❌ Docker login failed"
+            exit 1
           fi
           
           # Push images with error handling
+          echo "📤 Pushing Docker images..."
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
+          PUSHED_COUNT=0
+          FAILED_PUSHES=()
           
           for image in "${IMAGES[@]}"; do
-            IMAGE_TAG="1bucket.oneas1a.com/oa-onlysaid-app-docker-dev-local/${image}:dev-${{ env.BUILD_VERSION }}"
-            echo "Attempting to push ${IMAGE_TAG}..."
+            IMAGE_TAG="${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/${image}:dev-${{ env.BUILD_VERSION }}"
+            echo "Pushing ${IMAGE_TAG}..."
             
-            if docker push "${IMAGE_TAG}"; then
+            if timeout 600 docker push "${IMAGE_TAG}"; then
               echo "✅ Successfully pushed ${image}"
+              PUSHED_COUNT=$((PUSHED_COUNT + 1))
             else
-              echo "❌ Failed to push ${image} - this is expected for now"
+              echo "❌ Failed to push ${image}"
+              FAILED_PUSHES+=("$image")
             fi
           done
+          
+          # Report results
+          echo "📊 Push Results:"
+          echo "Successfully pushed: $PUSHED_COUNT/${#IMAGES[@]}"
+          
+          if [ ${#FAILED_PUSHES[@]} -gt 0 ]; then
+            echo "Failed pushes: ${FAILED_PUSHES[*]}"
+            echo "❌ Some images failed to push"
+            exit 1
+          else
+            echo "✅ All images pushed successfully"
+          fi
         
       - name: Upload Electron Installers to JFrog Artifactory
         run: |
@@ -442,7 +459,7 @@ jobs:
           echo "Generating Kubernetes deployment manifests..."
           mkdir -p k8s-manifests
           
-          # Create deployment manifest template using docker registry
+          # Create deployment manifest template using correct docker registry
           cat > k8s-manifests/onlysaid-app-deployment.yaml << EOF
           apiVersion: apps/v1
           kind: Deployment
@@ -461,7 +478,7 @@ jobs:
               spec:
                 containers:
                 - name: onlysaid-app
-                  image: ${{ env.DOCKER_REGISTRY }}/onlysaid-app:dev-${{ env.BUILD_VERSION }}
+                  image: ${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-${{ env.BUILD_VERSION }}
                   ports:
                   - containerPort: 3000
           EOF
@@ -482,15 +499,14 @@ jobs:
           echo "- **Build Number:** ${{ env.BUILD_NUMBER }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner Type:** Self-hosted Linux" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner Host:** $(hostname)" >> $GITHUB_STEP_SUMMARY
-          echo "- **JFrog Web URL:** ${JFROG_URL}" >> $GITHUB_STEP_SUMMARY
-          echo "- **JFrog Artifactory URL:** ${JFROG_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "- **JFrog Web URL:** ${{ env.JFROG_URL }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Registry Host:** ${{ env.DOCKER_REGISTRY_HOST }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Registry:** ${{ env.DOCKER_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
-          echo "- **Docker Login Host:** ${DOCKER_LOGIN_HOST}" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Configured:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Accessible:** ✅" >> $GITHUB_STEP_SUMMARY
-          echo "- **Docker Registry:** oa-onlysaid-app-docker-dev-local" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Registry Accessible:** ✅" >> $GITHUB_STEP_SUMMARY
+          echo "- **Docker Repository:** oa-onlysaid-app-docker-dev-local" >> $GITHUB_STEP_SUMMARY
           echo "- **Electron Registry:** oa-onlysaid-electron-dev-local" >> $GITHUB_STEP_SUMMARY
-          echo "- **NPM Registry:** oa-npm (virtual)" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Images Built:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Electron Build Completed:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Artifacts Published to JFrog:** ✅" >> $GITHUB_STEP_SUMMARY
@@ -501,14 +517,27 @@ jobs:
         run: |
           echo "🧹 Cleaning up..."
           
+          # Restore original Docker daemon configuration
+          if [ -f /etc/docker/daemon.json.backup ]; then
+            echo "Restoring original Docker daemon configuration..."
+            sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
+            sudo systemctl restart docker
+            sleep 10
+          else
+            echo "Removing Docker insecure registry configuration..."
+            sudo rm -f /etc/docker/daemon.json
+            sudo systemctl restart docker
+            sleep 10
+          fi
+          
           # Clean up JFrog configuration
           if [ -n "${JFROG_SERVER_ID}" ]; then
             echo "Cleaning up JFrog configuration..."
             jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
           fi
           
-          # Logout from Docker registry using the correct host
-          docker logout "${DOCKER_LOGIN_HOST}" || echo "Docker logout failed"
+          # Logout from Docker registry
+          docker logout "${{ env.DOCKER_REGISTRY_HOST }}" || echo "Docker logout failed"
           
           # Clean up Docker images to save space
           echo "Cleaning up Docker images..."
