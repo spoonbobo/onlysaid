@@ -116,21 +116,69 @@ jobs:
         run: |
           echo "🔗 Testing JFrog connectivity..."
           
-          # Test JFrog web interface connectivity
-          echo "Testing JFrog web interface: ${JFROG_URL}/artifactory/api/system/ping"
-          if curl -f -s --connect-timeout 30 --max-time 30 "${JFROG_URL}/artifactory/api/system/ping" > /dev/null; then
+          # Test JFrog web interface connectivity with SSL verification disabled for self-signed certs
+          WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"  # Remove trailing slash to avoid double slash
+          echo "Testing JFrog web interface: ${WEB_URL}"
+          if curl -f -s -k --connect-timeout 30 --max-time 30 "${WEB_URL}" > /dev/null; then
             echo "✅ JFrog web interface is accessible"
           else
-            echo "❌ Cannot reach JFrog web interface"
-            echo "Please verify JFrog web URL: ${JFROG_URL}"
+            echo "⚠️ JFrog web interface not accessible via HTTPS (SSL issues)"
+            echo "Trying HTTP fallback..."
+            HTTP_WEB_URL=$(echo "${WEB_URL}" | sed 's/https:/http:/')
+            if curl -f -s --connect-timeout 30 --max-time 30 "${HTTP_WEB_URL}" > /dev/null; then
+              echo "✅ JFrog web interface accessible via HTTP"
+            else
+              echo "❌ Cannot reach JFrog web interface via HTTP or HTTPS"
+              echo "Please verify JFrog web URL: ${JFROG_URL}"
+            fi
           fi
           
-          # Test JFrog Artifactory connectivity (for Docker registry)
-          echo "Testing JFrog Artifactory: http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
-          if curl -f -s --connect-timeout 30 --max-time 30 "http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping" > /dev/null; then
-            echo "✅ JFrog Artifactory is accessible"
+          # Test JFrog Artifactory connectivity (for Docker registry) - try both HTTP and HTTPS
+          ARTIFACTORY_HTTP_URL="http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
+          ARTIFACTORY_HTTPS_URL="https://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
+          
+          echo "Testing JFrog Artifactory HTTP: ${ARTIFACTORY_HTTP_URL}"
+          if curl -f -s --connect-timeout 30 --max-time 30 "${ARTIFACTORY_HTTP_URL}" > /dev/null; then
+            echo "✅ JFrog Artifactory is accessible via HTTP"
             echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
+            echo "ARTIFACTORY_PROTOCOL=http" >> $GITHUB_ENV
           else
+            echo "⚠️ JFrog Artifactory not accessible via HTTP, trying HTTPS..."
+            echo "Testing JFrog Artifactory HTTPS: ${ARTIFACTORY_HTTPS_URL}"
+            if curl -f -s -k --connect-timeout 30 --max-time 30 "${ARTIFACTORY_HTTPS_URL}" > /dev/null; then
+              echo "✅ JFrog Artifactory is accessible via HTTPS"
+              echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
+              echo "ARTIFACTORY_PROTOCOL=https" >> $GITHUB_ENV
+            else
+              echo "❌ Cannot reach JFrog Artifactory from self-hosted runner"
+              echo "Please verify:"
+              echo "1. Runner has network connectivity"
+              echo "2. JFrog Artifactory URL is correct: ${JFROG_ARTIFACTORY_URL}"
+              echo "3. Port 8081 is accessible"
+              echo "4. Network/firewall allows connections to port 8081"
+              echo "5. JFrog Artifactory service is running"
+              echo "6. SSL certificates are properly configured"
+              
+              # Try to diagnose the issue
+              echo "🔍 Diagnostic information:"
+              echo "Testing basic connectivity to host..."
+              if ping -c 1 $(echo "${JFROG_ARTIFACTORY_URL}" | cut -d: -f1) > /dev/null 2>&1; then
+                echo "✅ Host is reachable via ping"
+              else
+                echo "❌ Host is not reachable via ping"
+              fi
+              
+              echo "Testing port connectivity..."
+              if timeout 10 bash -c "</dev/tcp/$(echo "${JFROG_ARTIFACTORY_URL}" | tr ':' '/')"; then
+                echo "✅ Port 8081 is open"
+              else
+                echo "❌ Port 8081 is not accessible"
+              fi
+              
+              exit 1
+            fi
+          fi
+        timeout-minutes: 2
             echo "❌ Cannot reach JFrog Artifactory from self-hosted runner"
             echo "Please verify:"
             echo "1. Runner has network connectivity"
