@@ -51,6 +51,7 @@ jobs:
             
             # Export to GitHub Actions environment
             echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
+            echo "JFROG_ARTIFACTORY_URL=${JFROG_ARTIFACTORY_URL}" >> $GITHUB_ENV
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             echo "STRIPE_SECRET_KEY=${STRIPE_SECRET_KEY}" >> $GITHUB_ENV
             echo "KB_BASE_URL=${KB_BASE_URL}" >> $GITHUB_ENV
@@ -61,14 +62,16 @@ jobs:
             echo "GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID}" >> $GITHUB_ENV
             echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> $GITHUB_ENV
             
-            # Configure Docker registry from JFROG_URL
-            JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
-            echo "DOCKER_REGISTRY=${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
+            # Configure Docker registry URLs properly
+            # JFROG_URL is for web access (https://1bucket.oneas1a.com/)
+            # JFROG_ARTIFACTORY_URL is for Docker registry (1bucket.oneas1a.com:8081)
+            echo "DOCKER_REGISTRY=${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
             echo "ELECTRON_REGISTRY=oa-onlysaid-electron-dev-local" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
-            echo "JFrog URL: ${JFROG_URL}"
-            echo "Docker Registry: ${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local"
+            echo "JFrog Web URL: ${JFROG_URL}"
+            echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
+            echo "Docker Registry: ${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-dev-local"
           else
             echo "❌ Secrets file not found at $SECRETS_FILE"
             echo "Current user: $(whoami)"
@@ -113,17 +116,28 @@ jobs:
         run: |
           echo "🔗 Testing JFrog connectivity..."
           
-          # Test JFrog connectivity - MUST succeed
+          # Test JFrog web interface connectivity
+          echo "Testing JFrog web interface: ${JFROG_URL}/artifactory/api/system/ping"
           if curl -f -s --connect-timeout 30 --max-time 30 "${JFROG_URL}/artifactory/api/system/ping" > /dev/null; then
-            echo "✅ JFrog server is accessible from self-hosted runner"
+            echo "✅ JFrog web interface is accessible"
+          else
+            echo "❌ Cannot reach JFrog web interface"
+            echo "Please verify JFrog web URL: ${JFROG_URL}"
+          fi
+          
+          # Test JFrog Artifactory connectivity (for Docker registry)
+          echo "Testing JFrog Artifactory: http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
+          if curl -f -s --connect-timeout 30 --max-time 30 "http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping" > /dev/null; then
+            echo "✅ JFrog Artifactory is accessible"
             echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
           else
-            echo "❌ Cannot reach JFrog server from self-hosted runner"
+            echo "❌ Cannot reach JFrog Artifactory from self-hosted runner"
             echo "Please verify:"
-            echo "1. Runner has internet connectivity"
-            echo "2. JFrog URL is correct: ${JFROG_URL}"
-            echo "3. Network/firewall allows outbound connections"
-            echo "4. JFrog service is running"
+            echo "1. Runner has network connectivity"
+            echo "2. JFrog Artifactory URL is correct: ${JFROG_ARTIFACTORY_URL}"
+            echo "3. Port 8081 is accessible"
+            echo "4. Network/firewall allows connections to port 8081"
+            echo "5. JFrog Artifactory service is running"
             exit 1
           fi
         timeout-minutes: 1
@@ -335,8 +349,9 @@ jobs:
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Login to JFrog Docker registry
-          echo "${{ secrets.JFROG_TOKEN }}" | docker login ${{ secrets.JFROG_URL }} -u admin --password-stdin
+          # Login to JFrog Docker registry using the correct Artifactory URL
+          echo "Logging into JFrog Docker registry at: ${JFROG_ARTIFACTORY_URL}"
+          echo "${{ secrets.JFROG_TOKEN }}" | docker login "${JFROG_ARTIFACTORY_URL}" -u admin --password-stdin
           
           # Push to oa-onlysaid-app-docker-dev-local repository
           echo "Pushing images to oa-onlysaid-app-docker-dev-local..."
@@ -439,6 +454,8 @@ jobs:
           echo "- **Build Number:** ${{ env.BUILD_NUMBER }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner Type:** Self-hosted Linux" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner Host:** $(hostname)" >> $GITHUB_STEP_SUMMARY
+          echo "- **JFrog Web URL:** ${JFROG_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "- **JFrog Artifactory URL:** ${JFROG_ARTIFACTORY_URL}" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Configured:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Accessible:** ✅" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Registry:** oa-onlysaid-app-docker-dev-local" >> $GITHUB_STEP_SUMMARY
@@ -459,6 +476,9 @@ jobs:
             echo "Cleaning up JFrog configuration..."
             jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
           fi
+          
+          # Logout from Docker registry
+          docker logout "${JFROG_ARTIFACTORY_URL}" || echo "Docker logout failed"
           
           # Clean up Docker images to save space
           echo "Cleaning up Docker images..."

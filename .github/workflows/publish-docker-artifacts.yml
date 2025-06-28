@@ -43,19 +43,19 @@ jobs:
             
             # Export to GitHub Actions environment
             echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
+            echo "JFROG_ARTIFACTORY_URL=${JFROG_ARTIFACTORY_URL}" >> $GITHUB_ENV
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             
-            # Configure registry based on environment
-            JFROG_DOMAIN=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
+            # Configure registry based on environment using the correct Artifactory URL
             case "${{ env.REGISTRY_ENV }}" in
               "dev")
-                DOCKER_REGISTRY="${JFROG_DOMAIN}/oa-onlysaid-app-docker-dev-local"
+                DOCKER_REGISTRY="${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-dev-local"
                 ;;
               "staging")
-                DOCKER_REGISTRY="${JFROG_DOMAIN}/oa-onlysaid-app-docker-staging-local"
+                DOCKER_REGISTRY="${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-staging-local"
                 ;;
               "prod")
-                DOCKER_REGISTRY="${JFROG_DOMAIN}/oa-onlysaid-app-docker-prod-local"
+                DOCKER_REGISTRY="${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-prod-local"
                 ;;
               *)
                 echo "❌ Unknown registry environment: ${{ env.REGISTRY_ENV }}"
@@ -67,7 +67,8 @@ jobs:
             
             echo "✅ Configuration loaded successfully"
             echo "Environment: ${{ env.REGISTRY_ENV }}"
-            echo "JFrog URL: ${JFROG_URL}"
+            echo "JFrog Web URL: ${JFROG_URL}"
+            echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
             echo "Docker Registry: ${DOCKER_REGISTRY}"
           else
             echo "❌ Secrets file not found at $SECRETS_FILE"
@@ -87,20 +88,40 @@ jobs:
           RETRY_COUNT=0
           MAX_RETRIES=3
           
+          # Test JFrog web interface
+          echo "Testing JFrog web interface: ${JFROG_URL}/artifactory/api/system/ping"
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            echo "Testing connectivity to: ${JFROG_URL}/artifactory/api/system/ping"
             if curl -f -s --connect-timeout 10 --max-time 30 "${JFROG_URL}/artifactory/api/system/ping" > /dev/null; then
-              echo "✅ JFrog server is accessible (attempt $((RETRY_COUNT + 1)))"
+              echo "✅ JFrog web interface is accessible (attempt $((RETRY_COUNT + 1)))"
               break
             else
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ JFrog connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                echo "⚠️ JFrog web interface connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
                 sleep 5
               else
-                echo "❌ Cannot reach JFrog server after $MAX_RETRIES attempts"
-                echo "JFrog URL: ${JFROG_URL}"
-                echo "Please check network connectivity and JFrog server status"
+                echo "❌ Cannot reach JFrog web interface after $MAX_RETRIES attempts"
+                echo "JFrog Web URL: ${JFROG_URL}"
+              fi
+            fi
+          done
+          
+          # Test JFrog Artifactory (Docker registry)
+          RETRY_COUNT=0
+          echo "Testing JFrog Artifactory: http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s --connect-timeout 10 --max-time 30 "http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping" > /dev/null; then
+              echo "✅ JFrog Artifactory is accessible (attempt $((RETRY_COUNT + 1)))"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️ JFrog Artifactory connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 5
+              else
+                echo "❌ Cannot reach JFrog Artifactory after $MAX_RETRIES attempts"
+                echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
+                echo "Please check network connectivity and JFrog Artifactory server status"
                 exit 1
               fi
             fi
@@ -145,7 +166,7 @@ jobs:
       - name: "[AUTH] JFrog Docker Registry"
         run: |
           echo "🔐 Authenticating with JFrog Docker Registry..."
-          echo "Registry URL: ${{ env.JFROG_URL }}"
+          echo "Registry URL: ${{ env.JFROG_ARTIFACTORY_URL }}"
           
           RETRY_COUNT=0
           MAX_RETRIES=3
@@ -153,7 +174,7 @@ jobs:
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             echo "Authentication attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
             
-            if echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.JFROG_URL }}" -u admin --password-stdin; then
+            if echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.JFROG_ARTIFACTORY_URL }}" -u admin --password-stdin; then
               echo "✅ Successfully authenticated with JFrog Docker Registry"
               break
             else
@@ -165,8 +186,9 @@ jobs:
                 echo "❌ Failed to authenticate with JFrog Docker Registry after $MAX_RETRIES attempts"
                 echo "Please check:"
                 echo "1. JFROG_TOKEN secret is correct"
-                echo "2. JFrog server is accessible"
+                echo "2. JFrog Artifactory server is accessible at: ${{ env.JFROG_ARTIFACTORY_URL }}"
                 echo "3. User 'admin' has proper permissions"
+                echo "4. Port 8081 is accessible"
                 exit 1
               fi
             fi
@@ -212,7 +234,7 @@ jobs:
                   
                   # Try to re-authenticate before retry
                   echo "Re-authenticating before retry..."
-                  echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.JFROG_URL }}" -u admin --password-stdin
+                  echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.JFROG_ARTIFACTORY_URL }}" -u admin --password-stdin
                 else
                   echo "❌ Failed to push $tag_version after $max_retries attempts"
                   return 1
@@ -236,7 +258,7 @@ jobs:
                   
                   # Try to re-authenticate before retry
                   echo "Re-authenticating before retry..."
-                  echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.JFROG_URL }}" -u admin --password-stdin
+                  echo "${{ secrets.JFROG_TOKEN }}" | docker login "${{ env.JFROG_ARTIFACTORY_URL }}" -u admin --password-stdin
                 else
                   echo "❌ Failed to push $tag_latest after $max_retries attempts"
                   return 1
@@ -325,6 +347,11 @@ jobs:
           - KB: \`${{ env.DOCKER_REGISTRY }}/onlysaid-kb:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
           - Docs: \`${{ env.DOCKER_REGISTRY }}/onlysaid-docs:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
           
+          ### Configuration Details:
+          - **JFrog Web URL:** ${{ env.JFROG_URL }}
+          - **JFrog Artifactory URL:** ${{ env.JFROG_ARTIFACTORY_URL }}
+          - **Docker Registry:** ${{ env.DOCKER_REGISTRY }}
+          
           ### Test Information:
           - **Purpose:** Test JFrog Docker registry publishing functionality
           - **Images:** Dummy Alpine Linux containers with metadata
@@ -342,7 +369,7 @@ jobs:
           echo "🧹 Cleaning up dummy Docker images..."
           
           # Logout from Docker registry
-          docker logout "${{ env.JFROG_URL }}" || echo "Docker logout failed"
+          docker logout "${{ env.JFROG_ARTIFACTORY_URL }}" || echo "Docker logout failed"
           
           # Remove dummy images
           echo "Removing dummy images..."
