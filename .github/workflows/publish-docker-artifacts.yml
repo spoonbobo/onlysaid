@@ -227,42 +227,114 @@ jobs:
           echo "Docker Repository: ${{ env.DOCKER_REPO }}"
           echo "JFrog User: ${{ env.JFROG_USER }}"
           
-          # Configure Docker for insecure registry with better settings
+          # Configure Docker for insecure registry with minimal, safe settings
           sudo mkdir -p /etc/docker
           
           # Backup existing daemon.json if it exists
           if [ -f /etc/docker/daemon.json ]; then
             sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
+            echo "📋 Existing Docker daemon configuration backed up"
           fi
           
-          # Create daemon.json for insecure registry with optimized settings
+          # Create minimal daemon.json for insecure registry (remove problematic storage options)
           sudo tee /etc/docker/daemon.json > /dev/null << EOF
           {
             "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"],
             "registry-mirrors": [],
             "debug": false,
             "max-concurrent-uploads": 1,
-            "max-concurrent-downloads": 1,
-            "max-download-attempts": 5,
-            "storage-driver": "overlay2",
-            "storage-opts": [
-              "overlay2.override_kernel_check=true"
-            ]
+            "max-concurrent-downloads": 1
           }
           EOF
           
           echo "📋 Docker daemon configuration:"
           sudo cat /etc/docker/daemon.json
           
-          # Restart Docker daemon with longer wait
+          # Validate JSON syntax before restarting
+          echo "🔍 Validating Docker daemon configuration..."
+          if ! sudo cat /etc/docker/daemon.json | jq . > /dev/null 2>&1; then
+            echo "❌ Invalid JSON in daemon.json, reverting to backup"
+            if [ -f /etc/docker/daemon.json.backup ]; then
+              sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
+            else
+              sudo rm -f /etc/docker/daemon.json
+            fi
+            exit 1
+          fi
+          
+          # Check current Docker status before restart
+          echo "📋 Current Docker status:"
+          sudo systemctl status docker --no-pager || echo "Docker not running"
+          
+          # Restart Docker daemon with error handling
           echo "🔄 Restarting Docker daemon..."
-          sudo systemctl restart docker
+          if sudo systemctl restart docker; then
+            echo "✅ Docker daemon restarted successfully"
+          else
+            echo "❌ Docker daemon restart failed"
+            echo "📋 Docker service status:"
+            sudo systemctl status docker --no-pager
+            echo "📋 Docker service logs:"
+            sudo journalctl -xeu docker.service --no-pager -n 20
+            
+            # Try to restore backup configuration
+            if [ -f /etc/docker/daemon.json.backup ]; then
+              echo "🔄 Attempting to restore backup configuration..."
+              sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
+              sudo systemctl restart docker
+              if [ $? -eq 0 ]; then
+                echo "✅ Docker restored with backup configuration"
+              else
+                echo "❌ Failed to restore Docker with backup configuration"
+                # Remove daemon.json entirely and try again
+                sudo rm -f /etc/docker/daemon.json
+                sudo systemctl restart docker
+                if [ $? -eq 0 ]; then
+                  echo "✅ Docker restored with default configuration"
+                  # Re-create minimal config without storage options
+                  sudo tee /etc/docker/daemon.json > /dev/null << EOF
+    {
+      "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"]
+    }
+    EOF
+                  sudo systemctl restart docker
+                else
+                  echo "❌ Failed to restore Docker service"
+                  exit 1
+                fi
+              fi
+            else
+              # No backup, try removing daemon.json entirely
+              echo "🔄 Removing daemon.json and restarting with defaults..."
+              sudo rm -f /etc/docker/daemon.json
+              sudo systemctl restart docker
+              if [ $? -eq 0 ]; then
+                echo "✅ Docker restored with default configuration"
+                # Re-create minimal config
+                sudo tee /etc/docker/daemon.json > /dev/null << EOF
+    {
+      "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"]
+    }
+    EOF
+                sudo systemctl restart docker
+              else
+                echo "❌ Failed to restore Docker service"
+                exit 1
+              fi
+            fi
+          fi
+          
+          # Wait for Docker to be fully ready
+          echo "⏳ Waiting for Docker to be ready..."
           sleep 30
           
           # Verify Docker is working
           echo "✅ Verifying Docker status..."
           docker version
-          docker info | grep -E "(Storage Driver|Registry)"
+          
+          # Show Docker info (but don't fail if some commands don't work)
+          echo "📋 Docker system info:"
+          docker info | grep -E "(Storage Driver|Registry|Server Version)" || echo "Some Docker info not available"
           
           # Docker login using Repository Path method with retry logic
           echo "🔐 Authenticating with JFrog Docker registry..."
@@ -352,7 +424,7 @@ jobs:
           
           echo "Test push: $VERSION_TAG"
           
-          # Try to push with retry logic (remove --debug flag)
+          # Try to push with retry logic
           if push_with_retry "$VERSION_TAG"; then
             echo "✅ Test push successful!"
             
