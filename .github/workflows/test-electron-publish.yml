@@ -196,16 +196,17 @@ jobs:
           
           echo "✅ Found $INSTALLER_COUNT installer files"
 
-      # 8. Upload using same method as CI/CD workflow (NO JFrog CLI config)
+      # 8. Upload using direct URL specification (like CI/CD workflow should)
       - name: "[PUBLISH] Upload Electron installers to JFrog"
         run: |
           echo "🚀 Uploading Electron installers to JFrog..."
-          echo "Using same upload method as CI/CD workflow"
+          echo "Using direct URL specification method"
           
           cd onlysaid-electron/release/build
           
           echo "Target registry: ${{ env.ELECTRON_REGISTRY }}"
           echo "Build version: ${{ env.BUILD_VERSION }}"
+          echo "JFrog URL: ${{ env.JFROG_URL }}"
           
           # Verify that build artifacts exist
           if [ ! "$(ls -A .)" ]; then
@@ -213,7 +214,7 @@ jobs:
             exit 1
           fi
           
-          # Upload all built installers to electron registry (SAME AS CI/CD)
+          # Upload all built installers to electron registry with URL specification
           UPLOADED_COUNT=0
           FAILED_UPLOADS=()
           
@@ -221,9 +222,11 @@ jobs:
             if [ -f "$file" ]; then
               echo "📤 Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
               
-              # Use same upload method as CI/CD workflow
+              # Use direct URL specification instead of server-id
               if jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
-                --server-id="${JFROG_SERVER_ID:-artifactory}" \
+                --url="${{ env.JFROG_URL }}" \
+                --user="${{ env.JFROG_USER }}" \
+                --password="${{ env.JFROG_USER_PASSWORD }}" \
                 --build-name="OnlySaid-Electron-Test" \
                 --build-number="${{ env.BUILD_NUMBER }}"; then
                 echo "✅ Successfully uploaded $file"
@@ -267,7 +270,7 @@ jobs:
           
           ### Test Information:
           - **Purpose:** Test Electron installer publishing to JFrog
-          - **Upload Method:** Same as CI/CD workflow (no CLI config)
+          - **Upload Method:** Direct URL specification method
           - **Build Process:** ✅ Successful
           - **Upload Process:** ✅ Successful
           EOF
