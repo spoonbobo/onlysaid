@@ -1,0 +1,330 @@
+name: Test Electron Publishing to JFrog
+
+on:
+  # Manual trigger only
+  workflow_dispatch:
+    inputs:
+      build_version:
+        description: 'Build version (commit SHA or custom version)'
+        required: false
+        default: 'test-electron'
+      registry_environment:
+        description: 'Target registry environment'
+        type: choice
+        options:
+          - dev
+          - staging
+          - prod
+        default: dev
+
+env:
+  # Build versioning
+  BUILD_VERSION: ${{ inputs.build_version || 'test-electron' }}
+  BUILD_NUMBER: ${{ github.run_number }}
+  REGISTRY_ENV: ${{ inputs.registry_environment || 'dev' }}
+
+jobs:
+  test-electron-publish:
+    name: Test Electron Publishing
+    runs-on: [self-hosted, onlysaid-runner]
+    timeout-minutes: 45
+    
+    steps:
+      # 1. Setup & Environment Configuration
+      - name: "[CONFIG] Load environment configuration"
+        id: config
+        run: |
+          echo "🔧 Loading configuration for ${{ env.REGISTRY_ENV }} environment..."
+          
+          SECRETS_FILE="$HOME/.secrets"
+          if [ -f "$SECRETS_FILE" ]; then
+            echo "Loading environment variables from $SECRETS_FILE..."
+            source "$SECRETS_FILE"
+            
+            # Export to GitHub Actions environment
+            echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
+            echo "JFROG_USER=${JFROG_USER}" >> $GITHUB_ENV
+            echo "JFROG_USER_PASSWORD=${JFROG_USER_PASSWORD}" >> $GITHUB_ENV
+            
+            # Configure Electron registry based on environment
+            case "${{ env.REGISTRY_ENV }}" in
+              "dev")
+                ELECTRON_REGISTRY="oa-onlysaid-electron-dev-local"
+                ;;
+              "staging")
+                ELECTRON_REGISTRY="oa-onlysaid-electron-staging-local"
+                ;;
+              "prod")
+                ELECTRON_REGISTRY="oa-onlysaid-electron-prod-local"
+                ;;
+              *)
+                echo "❌ Unknown registry environment: ${{ env.REGISTRY_ENV }}"
+                exit 1
+                ;;
+            esac
+            
+            echo "ELECTRON_REGISTRY=${ELECTRON_REGISTRY}" >> $GITHUB_ENV
+            
+            echo "✅ Configuration loaded successfully"
+            echo "Environment: ${{ env.REGISTRY_ENV }}"
+            echo "JFrog URL: ${JFROG_URL}"
+            echo "Electron Registry: ${ELECTRON_REGISTRY}"
+            echo "JFrog User: ${JFROG_USER}"
+          else
+            echo "❌ Secrets file not found at $SECRETS_FILE"
+            exit 1
+          fi
+
+      # 2. Checkout repository
+      - name: "[INIT] Checkout repository"
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      # 3. Setup Node.js and JFrog CLI
+      - name: "[SETUP] Node.js and JFrog CLI"
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          
+      - name: Set up JFrog CLI
+        uses: jfrog/setup-jfrog-cli@v4
+
+      # 4. Test JFrog connectivity
+      - name: "[CONFIG] JFrog connectivity test"
+        run: |
+          echo "🔗 Testing JFrog connectivity..."
+          
+          # Test JFrog web interface (HTTPS for web API)
+          WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
+          echo "Testing JFrog web interface: ${WEB_URL}"
+          
+          if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
+            echo "✅ JFrog web interface is accessible"
+          else
+            echo "❌ Cannot reach JFrog web interface"
+            echo "JFrog URL: ${JFROG_URL}"
+            exit 1
+          fi
+
+      # 5. Configure JFrog CLI
+      - name: "[CONFIG] Configure JFrog CLI"
+        run: |
+          echo "🔧 Configuring JFrog CLI..."
+          
+          # Configure JFrog CLI with server details
+          jfrog config add artifactory \
+            --url="${JFROG_URL}" \
+            --user="${JFROG_USER}" \
+            --password="${JFROG_USER_PASSWORD}" \
+            --interactive=false
+          
+          echo "✅ JFrog CLI configured"
+          
+          # Test JFrog CLI connectivity
+          echo "🔍 Testing JFrog CLI connectivity..."
+          jfrog rt ping --server-id=artifactory
+          
+          echo "✅ JFrog CLI connectivity verified"
+
+      # 6. Test Electron repository access
+      - name: "[DIAGNOSE] Test Electron repository access"
+        run: |
+          echo "🔍 Testing Electron repository access..."
+          
+          # Test repository accessibility via REST API
+          REPO_URL="${JFROG_URL%/}/artifactory/api/repositories/${{ env.ELECTRON_REGISTRY }}"
+          echo "Testing repository: $REPO_URL"
+          
+          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_URL" > /tmp/electron_repo_info.json; then
+            echo "✅ Electron repository is accessible via API"
+            echo "Repository info:"
+            cat /tmp/electron_repo_info.json | jq '.' || cat /tmp/electron_repo_info.json
+          else
+            echo "❌ Electron repository not accessible via API"
+            echo "This might indicate:"
+            echo "1. Repository doesn't exist"
+            echo "2. User doesn't have permissions"
+            echo "3. Repository name is incorrect"
+            exit 1
+          fi
+
+      # 7. Install dependencies and build Electron app
+      - name: "[DEPS] Install Electron dependencies"
+        run: |
+          cd onlysaid-electron
+          
+          echo "Installing Electron dependencies..."
+          
+          # Set npm configuration for better reliability
+          npm config set fetch-timeout 60000
+          npm config set fetch-retry-mintimeout 10000
+          npm config set fetch-retry-maxtimeout 60000
+          npm config set fetch-retries 3
+          
+          echo "Installing dependencies with npm ci..."
+          npm ci --prefer-offline --no-audit
+          echo "✅ Successfully installed Electron dependencies"
+        timeout-minutes: 15
+
+      # 8. Build Electron application
+      - name: "[BUILD] Build Electron application"
+        working-directory: ./onlysaid-electron
+        env:
+          KB_BASE_URL: ${{ env.KB_BASE_URL || 'http://onlysaid-dev.com/api/kb/' }}
+          MICROSOFT_CLIENT_ID: ${{ env.MICROSOFT_CLIENT_ID || '' }}
+          ONLYSAID_API_URL: ${{ env.ONLYSAID_API_URL || 'https://api.onlysaeid.com' }}
+          ONLYSAID_DOMAIN: ${{ env.ONLYSAID_DOMAIN || 'https://onlysaid.com' }}
+          SOCKET_SERVER_URL: ${{ env.SOCKET_SERVER_URL || 'http://localhost:3001' }}
+          GOOGLE_CLIENT_ID: ${{ env.GOOGLE_CLIENT_ID || '' }}
+          GOOGLE_CLIENT_SECRET: ${{ env.GOOGLE_CLIENT_SECRET || '' }}
+        run: |
+          echo "Building Electron application..."
+          echo "Current working directory: $(pwd)"
+          
+          echo "Available npm scripts:"
+          npm run
+          
+          echo "Building Electron package..."
+          npm run package
+          echo "✅ Electron build completed successfully"
+
+      # 9. Verify build artifacts
+      - name: "[VERIFY] Check build artifacts"
+        run: |
+          echo "🔍 Checking Electron build artifacts..."
+          
+          cd onlysaid-electron/release/build
+          
+          if [ ! "$(ls -A .)" ]; then
+            echo "❌ No Electron build artifacts found"
+            exit 1
+          fi
+          
+          echo "📋 Found build artifacts:"
+          ls -la
+          
+          # Count different types of installers
+          INSTALLER_COUNT=0
+          for pattern in "*.exe" "*.dmg" "*.AppImage" "*.deb" "*.rpm"; do
+            if ls $pattern 1> /dev/null 2>&1; then
+              COUNT=$(ls $pattern | wc -l)
+              INSTALLER_COUNT=$((INSTALLER_COUNT + COUNT))
+              echo "Found $COUNT files matching $pattern"
+            fi
+          done
+          
+          if [ $INSTALLER_COUNT -eq 0 ]; then
+            echo "❌ No installer files found"
+            exit 1
+          fi
+          
+          echo "✅ Found $INSTALLER_COUNT installer files"
+
+      # 10. Test upload to JFrog
+      - name: "[PUBLISH] Upload Electron installers to JFrog"
+        run: |
+          echo "🚀 Uploading Electron installers to JFrog..."
+          
+          cd onlysaid-electron/release/build
+          
+          echo "Target registry: ${{ env.ELECTRON_REGISTRY }}"
+          echo "Build version: ${{ env.BUILD_VERSION }}"
+          
+          # Upload all built installers to electron registry
+          UPLOADED_COUNT=0
+          FAILED_UPLOADS=()
+          
+          for file in *.exe *.dmg *.AppImage *.deb *.rpm; do
+            if [ -f "$file" ]; then
+              echo "📤 Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
+              
+              # Upload with JFrog CLI
+              TARGET_PATH="${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file"
+              
+              if jfrog rt u "$file" "$TARGET_PATH" \
+                --server-id=artifactory \
+                --build-name="OnlySaid-Electron-Test" \
+                --build-number="${{ env.BUILD_NUMBER }}"; then
+                echo "✅ Successfully uploaded $file"
+                UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
+              else
+                echo "❌ Failed to upload $file"
+                FAILED_UPLOADS+=("$file")
+              fi
+            fi
+          done
+          
+          # Report results
+          echo "📊 Upload Results:"
+          echo "Successfully uploaded: $UPLOADED_COUNT files"
+          
+          if [ ${#FAILED_UPLOADS[@]} -gt 0 ]; then
+            echo "Failed uploads: ${FAILED_UPLOADS[*]}"
+            echo "❌ Some files failed to upload"
+            exit 1
+          else
+            echo "✅ All files uploaded successfully"
+          fi
+
+      # 11. Verify uploaded files
+      - name: "[VERIFY] Verify uploaded files in JFrog"
+        run: |
+          echo "🔍 Verifying uploaded files in JFrog..."
+          
+          # List files in the target directory
+          TARGET_DIR="${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/"
+          
+          echo "Listing files in: $TARGET_DIR"
+          
+          if jfrog rt s "$TARGET_DIR*" --server-id=artifactory; then
+            echo "✅ Files verified in JFrog repository"
+          else
+            echo "⚠️ Could not verify files (may still be processing)"
+          fi
+
+      # 12. Generate summary
+      - name: "[SUMMARY] Test summary"
+        run: |
+          echo "📋 Generating test summary..."
+          
+          cat << EOF >> $GITHUB_STEP_SUMMARY
+          ## Electron Publishing Test Results
+          
+          **Environment:** ${{ env.REGISTRY_ENV }}
+          **Build Version:** ${{ env.BUILD_VERSION }}
+          **Registry:** ${{ env.ELECTRON_REGISTRY }}
+          **Test Status:** ✅ SUCCESS
+          
+          ### Configuration Details:
+          - **JFrog Web URL:** ${{ env.JFROG_URL }}
+          - **Electron Registry:** ${{ env.ELECTRON_REGISTRY }}
+          - **Target Path:** \`${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/\`
+          
+          ### Test Information:
+          - **Purpose:** Test Electron installer publishing to JFrog
+          - **JFrog CLI:** ✅ Configured and working
+          - **Repository Access:** ✅ Verified
+          - **Build Process:** ✅ Successful
+          - **Upload Process:** ✅ Successful
+          EOF
+          
+          echo "✅ Summary generated successfully"
+
+      # 13. Cleanup
+      - name: "[CLEANUP] Clean up"
+        if: always()
+        run: |
+          echo "🧹 Cleaning up..."
+          
+          # Remove JFrog CLI configuration
+          jfrog config remove artifactory --quiet || echo "JFrog config cleanup failed"
+          
+          # Clean up build artifacts to save space
+          rm -rf onlysaid-electron/release/build/*
+          
+          # Clean up node_modules to save space
+          rm -rf onlysaid-electron/node_modules
+          
+          echo "✅ Cleanup completed" 

@@ -3,10 +3,10 @@ name: OnlySaid CI/CD
 on:
   push:
     branches:
-      - development
+      - disabled
   pull_request:
     branches:
-      - development
+      - disabled
 
 env:
   # Build versioning
