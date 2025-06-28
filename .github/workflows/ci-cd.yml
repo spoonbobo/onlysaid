@@ -344,7 +344,39 @@ jobs:
         run: |
           echo "Uploading to JFrog..."
           
+          # Configure Docker for insecure registry (JFrog with self-signed cert)
+          echo "🔧 Configuring Docker for JFrog registry..."
+          sudo mkdir -p /etc/docker
+          
+          # Backup existing daemon.json if it exists
+          if [ -f /etc/docker/daemon.json ]; then
+            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
+          fi
+          
+          # Create/update daemon.json with insecure registry
+          sudo tee /etc/docker/daemon.json > /dev/null << EOF
+          {
+            "insecure-registries": ["${DOCKER_LOGIN_HOST}"]
+          }
+          EOF
+          
+          echo "📋 Docker daemon configuration:"
+          sudo cat /etc/docker/daemon.json
+          
+          # Restart Docker daemon
+          echo "🔄 Restarting Docker daemon..."
+          sudo systemctl restart docker
+          
+          # Wait for Docker to be ready
+          echo "⏳ Waiting for Docker daemon to be ready..."
+          sleep 15
+          
+          # Verify Docker is working
+          echo "✅ Verifying Docker status..."
+          docker version
+          
           # Load and tag images
+          echo "📦 Loading Docker images..."
           docker load < /tmp/onlysaid-app.tar
           docker load < /tmp/onlysaid-socket.tar
           docker load < /tmp/onlysaid-kb.tar
@@ -356,7 +388,7 @@ jobs:
           echo "Docker registry: ${{ env.DOCKER_REGISTRY }}"
           
           # Login to JFrog Docker registry with retry logic
-          echo "Logging into JFrog Docker registry..."
+          echo "🔐 Logging into JFrog Docker registry..."
           RETRY_COUNT=0
           MAX_RETRIES=3
           
@@ -377,14 +409,14 @@ jobs:
                 echo "1. JFROG_TOKEN is correct"
                 echo "2. Docker registry host: ${DOCKER_LOGIN_HOST}"
                 echo "3. User 'admin' has proper permissions"
-                echo "4. Port 8081 is accessible from the runner"
+                echo "4. Registry configured as insecure: ${DOCKER_LOGIN_HOST}"
                 exit 1
               fi
             fi
           done
           
           # Push to oa-onlysaid-app-docker-dev-local repository with retry logic
-          echo "Pushing images to oa-onlysaid-app-docker-dev-local..."
+          echo "🚀 Pushing images to oa-onlysaid-app-docker-dev-local..."
           
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
           FAILED_PUSHES=()
@@ -535,6 +567,19 @@ jobs:
         if: always()
         run: |
           echo "🧹 Cleaning up..."
+          
+          # Restore original Docker daemon configuration
+          if [ -f /etc/docker/daemon.json.backup ]; then
+            echo "Restoring original Docker daemon configuration..."
+            sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
+            sudo systemctl restart docker
+            sleep 10
+          else
+            echo "Removing Docker insecure registry configuration..."
+            sudo rm -f /etc/docker/daemon.json
+            sudo systemctl restart docker
+            sleep 10
+          fi
           
           # Clean up JFrog configuration
           if [ -n "${JFROG_SERVER_ID}" ]; then

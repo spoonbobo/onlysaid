@@ -176,6 +176,37 @@ jobs:
         run: |
           echo "🔐 Authenticating with JFrog Docker Registry..."
           
+          # Configure Docker for insecure registry (JFrog with self-signed cert)
+          echo "🔧 Configuring Docker for JFrog registry..."
+          sudo mkdir -p /etc/docker
+          
+          # Backup existing daemon.json if it exists
+          if [ -f /etc/docker/daemon.json ]; then
+            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
+          fi
+          
+          # Create/update daemon.json with insecure registry
+          sudo tee /etc/docker/daemon.json > /dev/null << EOF
+          {
+            "insecure-registries": ["${DOCKER_LOGIN_HOST}"]
+          }
+          EOF
+          
+          echo "📋 Docker daemon configuration:"
+          sudo cat /etc/docker/daemon.json
+          
+          # Restart Docker daemon
+          echo "🔄 Restarting Docker daemon..."
+          sudo systemctl restart docker
+          
+          # Wait for Docker to be ready
+          echo "⏳ Waiting for Docker daemon to be ready..."
+          sleep 15
+          
+          # Verify Docker is working
+          echo "✅ Verifying Docker status..."
+          docker version
+          
           # Use Repository Path method for Docker login
           echo "Using Repository Path method for Docker operations"
           echo "Docker login host: ${DOCKER_LOGIN_HOST}"
@@ -200,7 +231,7 @@ jobs:
                 echo "1. JFROG_TOKEN secret is correct"
                 echo "2. JFrog Artifactory server is accessible at: ${DOCKER_LOGIN_HOST}"
                 echo "3. User 'admin' has proper permissions"
-                echo "4. Port 8081 is accessible from the runner"
+                echo "4. Registry configured as insecure: ${DOCKER_LOGIN_HOST}"
                 exit 1
               fi
             fi
@@ -384,6 +415,19 @@ jobs:
         if: always()
         run: |
           echo "🧹 Cleaning up dummy Docker images..."
+          
+          # Restore original Docker daemon configuration
+          if [ -f /etc/docker/daemon.json.backup ]; then
+            echo "Restoring original Docker daemon configuration..."
+            sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
+            sudo systemctl restart docker
+            sleep 10
+          else
+            echo "Removing Docker insecure registry configuration..."
+            sudo rm -f /etc/docker/daemon.json
+            sudo systemctl restart docker
+            sleep 10
+          fi
           
           # Logout from Docker registry using correct host
           docker logout "${DOCKER_LOGIN_HOST}" || echo "Docker logout failed"
