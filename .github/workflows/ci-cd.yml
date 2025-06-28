@@ -63,16 +63,16 @@ jobs:
             echo "GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET}" >> $GITHUB_ENV
             
             # Configure Docker registry URLs using Repository Path method
-            # JFROG_URL is for web API access (https://1bucket.oneas1a.com/)
-            # JFROG_ARTIFACTORY_URL is for Docker registry (https://1bucket.oneas1a.com:8081)
-            ARTIFACTORY_HOST=$(echo "${JFROG_ARTIFACTORY_URL}" | sed 's|^https\?://||' | sed 's|/$||')
+            # Both JFROG_URL and JFROG_ARTIFACTORY_URL should use the same base URL
+            # since your JFrog setup doesn't use separate ports
+            ARTIFACTORY_HOST=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
             echo "DOCKER_REGISTRY=${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local" >> $GITHUB_ENV
             echo "DOCKER_LOGIN_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
             echo "ELECTRON_REGISTRY=oa-onlysaid-electron-dev-local" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
             echo "JFrog Web URL: ${JFROG_URL}"
-            echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
+            echo "JFrog Artifactory URL: ${JFROG_URL}"  # Use same URL
             echo "Docker Registry: ${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local"
             echo "Docker Login Host: ${ARTIFACTORY_HOST}"
           else
@@ -130,16 +130,15 @@ jobs:
             exit 1
           fi
           
-          # Test JFrog Artifactory connectivity (for Docker registry)
-          ARTIFACTORY_URL="${JFROG_ARTIFACTORY_URL%/}/artifactory/api/system/ping"
+          # Test JFrog Artifactory connectivity (use same URL as web interface)
+          ARTIFACTORY_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog Artifactory: ${ARTIFACTORY_URL}"
           if curl -f -s -k --connect-timeout 30 --max-time 30 "${ARTIFACTORY_URL}" > /dev/null; then
             echo "✅ JFrog Artifactory is accessible"
             echo "JFROG_ACCESSIBLE=true" >> $GITHUB_ENV
           else
             echo "❌ Cannot reach JFrog Artifactory"
-            echo "Please verify JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
-            echo "Note: Make sure port 8081 is accessible from the runner"
+            echo "Please verify JFrog Artifactory URL: ${JFROG_URL}"
             exit 1
           fi
         timeout-minutes: 2
@@ -519,7 +518,7 @@ jobs:
           echo "- **Runner Type:** Self-hosted Linux" >> $GITHUB_STEP_SUMMARY
           echo "- **Runner Host:** $(hostname)" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Web URL:** ${JFROG_URL}" >> $GITHUB_STEP_SUMMARY
-          echo "- **JFrog Artifactory URL:** ${JFROG_ARTIFACTORY_URL}" >> $GITHUB_STEP_SUMMARY
+          echo "- **JFrog Artifactory URL:** ${JFROG_URL}" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Registry:** ${{ env.DOCKER_REGISTRY }}" >> $GITHUB_STEP_SUMMARY
           echo "- **Docker Login Host:** ${DOCKER_LOGIN_HOST}" >> $GITHUB_STEP_SUMMARY
           echo "- **JFrog Configured:** ✅" >> $GITHUB_STEP_SUMMARY

@@ -47,9 +47,8 @@ jobs:
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             
             # Configure registry based on environment using Repository Path method
-            # JFROG_URL is for web API access (https://1bucket.oneas1a.com/)
-            # JFROG_ARTIFACTORY_URL is for Docker registry (https://1bucket.oneas1a.com:8081)
-            ARTIFACTORY_HOST=$(echo "${JFROG_ARTIFACTORY_URL}" | sed 's|^https\?://||' | sed 's|/$||')
+            # Use JFROG_URL for both web and Docker registry since they use the same port
+            ARTIFACTORY_HOST=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
             case "${{ env.REGISTRY_ENV }}" in
               "dev")
                 DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local"
@@ -72,7 +71,7 @@ jobs:
             echo "✅ Configuration loaded successfully"
             echo "Environment: ${{ env.REGISTRY_ENV }}"
             echo "JFrog Web URL: ${JFROG_URL}"
-            echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
+            echo "JFrog Artifactory URL: ${JFROG_URL}"  # Use same URL
             echo "Docker Registry: ${DOCKER_REGISTRY}"
             echo "Docker Login Host: ${ARTIFACTORY_HOST}"
           else
@@ -115,8 +114,8 @@ jobs:
             fi
           done
           
-          # Test JFrog Artifactory (for Docker registry)
-          ARTIFACTORY_URL="${JFROG_ARTIFACTORY_URL%/}/artifactory/api/system/ping"
+          # Test JFrog Artifactory (use same URL as web interface)
+          ARTIFACTORY_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog Artifactory: ${ARTIFACTORY_URL}"
           
           RETRY_COUNT=0
@@ -131,8 +130,7 @@ jobs:
                 sleep 5
               else
                 echo "❌ Cannot reach JFrog Artifactory after $MAX_RETRIES attempts"
-                echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
-                echo "Please check network connectivity and port 8081 accessibility"
+                echo "JFrog Artifactory URL: ${JFROG_URL}"
                 exit 1
               fi
             fi
@@ -366,7 +364,7 @@ jobs:
           
           ### Configuration Details:
           - **JFrog Web URL:** ${{ env.JFROG_URL }}
-          - **JFrog Artifactory URL:** ${{ env.JFROG_ARTIFACTORY_URL }}
+          - **JFrog Artifactory URL:** ${{ env.JFROG_URL }}
           - **Docker Registry:** ${{ env.DOCKER_REGISTRY }}
           - **Docker Login Host:** ${DOCKER_LOGIN_HOST}
           
