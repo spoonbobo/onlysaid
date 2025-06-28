@@ -426,31 +426,6 @@ jobs:
           echo "✅ Verifying Docker status..."
           docker version
           
-          # Test Docker registry connectivity after configuration
-          echo "🔗 Testing Docker registry connectivity..."
-          DOCKER_V2_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/"
-          echo "Testing Docker v2 API: $DOCKER_V2_URL"
-          
-          RETRY_COUNT=0
-          MAX_RETRIES=3
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -k --connect-timeout 10 --max-time 30 "$DOCKER_V2_URL" > /dev/null; then
-              echo "✅ Docker registry is accessible (attempt $((RETRY_COUNT + 1)))"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Docker registry connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 5
-              else
-                echo "❌ Cannot reach Docker registry after $MAX_RETRIES attempts"
-                echo "Docker Registry: ${{ env.DOCKER_REGISTRY_HOST }}"
-                exit 1
-              fi
-            fi
-          done
-          
           # Load Docker images from tar files
           echo "📦 Loading Docker images..."
           docker load < /tmp/onlysaid-app.tar
@@ -458,7 +433,7 @@ jobs:
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Docker login with retry logic
+          # Docker login with retry logic (this will test connectivity implicitly)
           echo "🔐 Authenticating with JFrog Docker registry..."
           echo "Login command: docker login ${{ env.DOCKER_REGISTRY_HOST }} -u ${{ env.JFROG_USER }}"
           
