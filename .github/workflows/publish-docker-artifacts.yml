@@ -50,17 +50,19 @@ jobs:
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             
             # Configure registry based on environment using Repository Path method
-            # Use JFROG_URL for both web and Docker registry since they use the same port
             ARTIFACTORY_HOST=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
             case "${{ env.REGISTRY_ENV }}" in
               "dev")
-                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local"
+                DOCKER_REPO="oa-onlysaid-app-docker-dev-local"
+                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/${DOCKER_REPO}"
                 ;;
               "staging")
-                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-staging-local"
+                DOCKER_REPO="oa-onlysaid-app-docker-staging-local"
+                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/${DOCKER_REPO}"
                 ;;
               "prod")
-                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-prod-local"
+                DOCKER_REPO="oa-onlysaid-app-docker-prod-local"
+                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/${DOCKER_REPO}"
                 ;;
               *)
                 echo "❌ Unknown registry environment: ${{ env.REGISTRY_ENV }}"
@@ -68,13 +70,15 @@ jobs:
                 ;;
             esac
             
+            echo "DOCKER_REPO=${DOCKER_REPO}" >> $GITHUB_ENV
             echo "DOCKER_REGISTRY=${DOCKER_REGISTRY}" >> $GITHUB_ENV
             echo "DOCKER_LOGIN_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
             echo "Environment: ${{ env.REGISTRY_ENV }}"
             echo "JFrog Web URL: ${JFROG_URL}"
-            echo "JFrog Artifactory URL: ${JFROG_URL}"  # Use same URL
+            echo "JFrog Artifactory URL: ${JFROG_URL}"
+            echo "Docker Repository: ${DOCKER_REPO}"
             echo "Docker Registry: ${DOCKER_REGISTRY}"
             echo "Docker Login Host: ${ARTIFACTORY_HOST}"
           else
@@ -179,13 +183,24 @@ jobs:
         run: |
           echo "🚀 Pushing Docker images to JFrog Artifactory..."
           
-          # Configure Docker registry URL
-          DOCKER_REGISTRY_URL="${ARTIFACTORY_HOST}/${DOCKER_REPO}"
-          echo "Registry URL: ${DOCKER_REGISTRY_URL}"
+          echo "Registry: ${{ env.DOCKER_REGISTRY }}"
+          echo "Repository: ${{ env.DOCKER_REPO }}"
+          echo "Login Host: ${{ env.DOCKER_LOGIN_HOST }}"
           
-          # Login to Docker registry using JFrog CLI
+          # Configure Docker for insecure registry first
+          sudo mkdir -p /etc/docker
+          sudo tee /etc/docker/daemon.json > /dev/null << EOF
+          {
+            "insecure-registries": ["${{ env.DOCKER_LOGIN_HOST }}"]
+          }
+          EOF
+          
+          sudo systemctl restart docker
+          sleep 15
+          
+          # Login to Docker registry
           echo "🔐 Authenticating with Docker registry..."
-          echo "${JFROG_TOKEN}" | docker login "${ARTIFACTORY_HOST}" -u admin --password-stdin
+          echo "${{ env.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_LOGIN_HOST }}" -u admin --password-stdin
           
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
           PUSHED_COUNT=0
@@ -194,19 +209,15 @@ jobs:
           for image in "${IMAGES[@]}"; do
             echo "📤 Pushing $image..."
             
-            # Tag images for registry
-            LOCAL_TAG_VERSION="${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
-            LOCAL_TAG_LATEST="${image}:${{ env.REGISTRY_ENV }}-latest"
+            # Use the already built images with registry tags
+            VERSION_TAG="${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
+            LATEST_TAG="${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-latest"
             
-            REGISTRY_TAG_VERSION="${DOCKER_REGISTRY_URL}/${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
-            REGISTRY_TAG_LATEST="${DOCKER_REGISTRY_URL}/${image}:${{ env.REGISTRY_ENV }}-latest"
-            
-            # Tag for registry
-            docker tag "${LOCAL_TAG_VERSION}" "${REGISTRY_TAG_VERSION}"
-            docker tag "${LOCAL_TAG_LATEST}" "${REGISTRY_TAG_LATEST}"
+            echo "Pushing: $VERSION_TAG"
+            echo "Pushing: $LATEST_TAG"
             
             # Push to registry
-            if docker push "${REGISTRY_TAG_VERSION}" && docker push "${REGISTRY_TAG_LATEST}"; then
+            if docker push "${VERSION_TAG}" && docker push "${LATEST_TAG}"; then
               echo "✅ Successfully pushed $image"
               PUSHED_COUNT=$((PUSHED_COUNT + 1))
             else
