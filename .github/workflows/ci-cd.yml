@@ -144,33 +144,33 @@ jobs:
           echo "🔗 Testing Docker registry connectivity early (before builds)..."
           echo "Since publish-docker-artifacts.yml succeeds, this should also work"
           
-          # Test Docker registry v2 API (HTTP on port 8080)
+          # Test Docker registry v2 API (HTTP on port 8080) WITH AUTHENTICATION
           DOCKER_V2_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/"
           echo "Testing Docker v2 API: $DOCKER_V2_URL"
           
           RETRY_COUNT=0
-          MAX_RETRIES=5  # Increased retries since we know it should work
+          MAX_RETRIES=5
           
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -k --connect-timeout 15 --max-time 45 "$DOCKER_V2_URL" > /dev/null; then
-              echo "✅ Docker registry is accessible (attempt $((RETRY_COUNT + 1)))"
+            # Use authentication like the working test workflow does
+            if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" --connect-timeout 15 --max-time 45 "$DOCKER_V2_URL" > /dev/null; then
+              echo "✅ Docker registry is accessible with authentication (attempt $((RETRY_COUNT + 1)))"
               break
             else
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
                 echo "⚠️ Docker registry connectivity failed, retrying in 10 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 10  # Longer wait between retries
+                sleep 10
               else
                 echo "❌ Cannot reach Docker registry after $MAX_RETRIES attempts"
                 echo "Docker Registry: ${{ env.DOCKER_REGISTRY_HOST }}"
                 echo "This should work since publish-docker-artifacts.yml succeeds"
-                echo "Possible causes: timing issue, resource exhaustion, or network congestion"
                 exit 1
               fi
             fi
           done
           
-          # Test specific repository endpoint (HTTP)
+          # Test specific repository endpoint (HTTP) with authentication
           REPO_V2_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/oa-onlysaid-app-docker-dev-local/tags/list"
           echo "Testing repository v2 endpoint: $REPO_V2_URL"
           
@@ -182,7 +182,7 @@ jobs:
           fi
           
           echo "✅ Early Docker registry connectivity test completed successfully"
-        timeout-minutes: 5  # Increased timeout
+        timeout-minutes: 5
         
       # 6. Dependency Management (simplified)
       - name: "[DEPS] Next.js dependencies"
