@@ -227,7 +227,7 @@ jobs:
           echo "Docker Repository: ${{ env.DOCKER_REPO }}"
           echo "JFrog User: ${{ env.JFROG_USER }}"
           
-          # Configure Docker for insecure registry
+          # Configure Docker for insecure registry with better settings
           sudo mkdir -p /etc/docker
           
           # Backup existing daemon.json if it exists
@@ -235,39 +235,114 @@ jobs:
             sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
           fi
           
-          # Create daemon.json for insecure registry with additional settings
+          # Create daemon.json for insecure registry with optimized settings
           sudo tee /etc/docker/daemon.json > /dev/null << EOF
           {
             "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"],
             "registry-mirrors": [],
             "debug": false,
             "max-concurrent-uploads": 1,
-            "max-concurrent-downloads": 1
+            "max-concurrent-downloads": 1,
+            "max-download-attempts": 5,
+            "storage-driver": "overlay2",
+            "storage-opts": [
+              "overlay2.override_kernel_check=true"
+            ]
           }
           EOF
           
           echo "📋 Docker daemon configuration:"
           sudo cat /etc/docker/daemon.json
           
-          # Restart Docker daemon
+          # Restart Docker daemon with longer wait
           echo "🔄 Restarting Docker daemon..."
           sudo systemctl restart docker
-          sleep 20
+          sleep 30
           
           # Verify Docker is working
           echo "✅ Verifying Docker status..."
           docker version
+          docker info | grep -E "(Storage Driver|Registry)"
           
-          # Docker login using Repository Path method
+          # Docker login using Repository Path method with retry logic
           echo "🔐 Authenticating with JFrog Docker registry..."
           echo "Login command: docker login ${{ env.ARTIFACTORY_HOST }} -u ${{ env.JFROG_USER }}"
           
-          if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.ARTIFACTORY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
-            echo "✅ Successfully authenticated with JFrog Docker Registry"
+          LOGIN_ATTEMPTS=0
+          MAX_LOGIN_ATTEMPTS=3
+          
+          while [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; do
+            if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.ARTIFACTORY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
+              echo "✅ Successfully authenticated with JFrog Docker Registry"
+              break
+            else
+              LOGIN_ATTEMPTS=$((LOGIN_ATTEMPTS + 1))
+              if [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; then
+                echo "⚠️ Login attempt $LOGIN_ATTEMPTS failed, retrying in 10 seconds..."
+                sleep 10
+              else
+                echo "❌ Failed to authenticate after $MAX_LOGIN_ATTEMPTS attempts"
+                exit 1
+              fi
+            fi
+          done
+          
+          # Test repository access before pushing
+          echo "🔍 Testing repository access..."
+          REPO_TEST_URL="https://${{ env.ARTIFACTORY_HOST }}/v2/${{ env.DOCKER_REPO }}/tags/list"
+          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_TEST_URL" > /dev/null; then
+            echo "✅ Repository is accessible via Docker v2 API"
           else
-            echo "❌ Failed to authenticate"
-            exit 1
+            echo "❌ Repository not accessible - this may cause push failures"
+            echo "Repository URL: $REPO_TEST_URL"
+            # Continue anyway to see detailed error
           fi
+          
+          # Function to push with retry logic
+          push_with_retry() {
+            local image_tag="$1"
+            local max_attempts=3
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Attempt $attempt/$max_attempts: Pushing $image_tag"
+              
+              if timeout 600 docker push "$image_tag" 2>&1 | tee /tmp/push_log_${attempt}.txt; then
+                echo "✅ Successfully pushed $image_tag on attempt $attempt"
+                return 0
+              else
+                echo "❌ Push attempt $attempt failed for $image_tag"
+                
+                # Analyze the error
+                if grep -q "blob upload unknown" /tmp/push_log_${attempt}.txt; then
+                  echo "Error: 'blob upload unknown' detected"
+                  echo "This usually indicates:"
+                  echo "1. Repository is not properly configured as a Docker repository"
+                  echo "2. User lacks push permissions"
+                  echo "3. Repository path is incorrect"
+                  echo "4. JFrog Artifactory Docker service configuration issue"
+                fi
+                
+                if grep -q "unauthorized" /tmp/push_log_${attempt}.txt; then
+                  echo "Error: 'unauthorized' - Authentication or permission issue"
+                fi
+                
+                if grep -q "timeout\|connection reset\|EOF" /tmp/push_log_${attempt}.txt; then
+                  echo "Error: Network connectivity issue detected"
+                fi
+                
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "Waiting 30 seconds before retry..."
+                  sleep 30
+                fi
+                
+                attempt=$((attempt + 1))
+              fi
+            done
+            
+            echo "❌ Failed to push $image_tag after $max_attempts attempts"
+            return 1
+          }
           
           # Try pushing just one image first as a test
           echo "🧪 Testing with single image push first..."
@@ -277,8 +352,8 @@ jobs:
           
           echo "Test push: $VERSION_TAG"
           
-          # Try to push with verbose output
-          if docker push "$VERSION_TAG" --debug 2>&1 | tee /tmp/push_log.txt; then
+          # Try to push with retry logic (remove --debug flag)
+          if push_with_retry "$VERSION_TAG"; then
             echo "✅ Test push successful!"
             
             # If test push works, proceed with all images
@@ -297,8 +372,8 @@ jobs:
               echo "Pushing: $VERSION_TAG"
               echo "Pushing: $LATEST_TAG"
               
-              # Push with timeout
-              if timeout 300 docker push "${VERSION_TAG}" && timeout 300 docker push "${LATEST_TAG}"; then
+              # Push with retry logic
+              if push_with_retry "${VERSION_TAG}" && push_with_retry "${LATEST_TAG}"; then
                 echo "✅ Successfully pushed $image"
                 PUSHED_COUNT=$((PUSHED_COUNT + 1))
               else
@@ -311,29 +386,30 @@ jobs:
             # Also push the latest tag for the test image
             LATEST_TAG="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${TEST_IMAGE}:${{ env.REGISTRY_ENV }}-latest"
             echo "Pushing latest tag for test image: $LATEST_TAG"
-            timeout 300 docker push "$LATEST_TAG" || echo "Failed to push latest tag for test image"
+            push_with_retry "$LATEST_TAG" || echo "Failed to push latest tag for test image"
             
           else
             echo "❌ Test push failed!"
-            echo "Push log:"
-            cat /tmp/push_log.txt
+            echo "🔍 Detailed error analysis:"
             
-            echo "🔍 Analyzing the error..."
-            if grep -q "blob upload unknown" /tmp/push_log.txt; then
-              echo "Error: 'blob upload unknown' - This usually indicates:"
-              echo "1. Repository is not properly configured as a Docker repository"
-              echo "2. User lacks push permissions"
-              echo "3. Repository path is incorrect"
-              echo "4. JFrog Artifactory Docker service is not running properly"
-            fi
+            # Show all push logs
+            for log_file in /tmp/push_log_*.txt; do
+              if [ -f "$log_file" ]; then
+                echo "=== $log_file ==="
+                cat "$log_file"
+                echo "=================="
+              fi
+            done
             
-            if grep -q "unauthorized" /tmp/push_log.txt; then
-              echo "Error: 'unauthorized' - Check user permissions for Docker repository"
-            fi
-            
-            if grep -q "timeout" /tmp/push_log.txt; then
-              echo "Error: 'timeout' - Network connectivity issues"
-            fi
+            echo ""
+            echo "🚨 TROUBLESHOOTING STEPS:"
+            echo "1. Verify the Docker repository '${{ env.DOCKER_REPO }}' exists in JFrog"
+            echo "2. Check that the repository is configured as a Docker repository (not generic)"
+            echo "3. Verify user '${{ env.JFROG_USER }}' has push permissions to this repository"
+            echo "4. Check JFrog Artifactory Docker service is running properly"
+            echo "5. Verify the repository path format is correct"
+            echo ""
+            echo "Repository URL: https://${{ env.ARTIFACTORY_HOST }}/ui/repos/tree/General/${{ env.DOCKER_REPO }}"
             
             exit 1
           fi
