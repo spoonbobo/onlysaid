@@ -16,9 +16,6 @@ on:
           - staging
           - prod
         default: dev
-  push:
-    branches:
-      - development
 
 env:
   # Build versioning
