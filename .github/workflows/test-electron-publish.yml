@@ -30,7 +30,7 @@ jobs:
     timeout-minutes: 45
     
     steps:
-      # 1. Setup & Environment Configuration
+      # 1. Setup & Environment Configuration (SAME AS CI/CD)
       - name: "[CONFIG] Load environment configuration"
         id: config
         run: |
@@ -41,10 +41,11 @@ jobs:
             echo "Loading environment variables from $SECRETS_FILE..."
             source "$SECRETS_FILE"
             
-            # Export to GitHub Actions environment
+            # Export to GitHub Actions environment (SAME AS CI/CD)
             echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
             echo "JFROG_USER=${JFROG_USER}" >> $GITHUB_ENV
             echo "JFROG_USER_PASSWORD=${JFROG_USER_PASSWORD}" >> $GITHUB_ENV
+            echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             
             # Configure Electron registry based on environment
             case "${{ env.REGISTRY_ENV }}" in
@@ -82,7 +83,7 @@ jobs:
           fetch-depth: 0
           submodules: recursive
 
-      # 3. Setup Node.js and JFrog CLI
+      # 3. Setup Node.js and JFrog CLI (SAME AS CI/CD)
       - name: "[SETUP] Node.js and JFrog CLI"
         uses: actions/setup-node@v4
         with:
@@ -91,73 +92,46 @@ jobs:
       - name: Set up JFrog CLI
         uses: jfrog/setup-jfrog-cli@v4
 
-      # 4. Test JFrog connectivity
-      - name: "[CONFIG] JFrog connectivity test"
+      # 4. Test JFrog connectivity (SAME AS CI/CD)
+      - name: "[CONFIG] JFrog connectivity"
         run: |
           echo "🔗 Testing JFrog connectivity..."
           
-          # Test JFrog web interface (HTTPS for web API)
+          # Test JFrog web interface connectivity (HTTPS for web API)
           WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog web interface: ${WEB_URL}"
           
-          if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
-            echo "✅ JFrog web interface is accessible"
-          else
-            echo "❌ Cannot reach JFrog web interface"
-            echo "JFrog URL: ${JFROG_URL}"
-            exit 1
-          fi
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
+              echo "✅ JFrog web interface is accessible (attempt $((RETRY_COUNT + 1)))"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️ JFrog web interface connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 5
+              else
+                echo "❌ Cannot reach JFrog web interface after $MAX_RETRIES attempts"
+                echo "JFrog URL: ${JFROG_URL}"
+                exit 1
+              fi
+            fi
+          done
+          
+          echo "✅ JFrog web interface connectivity verified"
+        timeout-minutes: 2
 
-      # 5. Configure JFrog CLI
-      - name: "[CONFIG] Configure JFrog CLI"
-        run: |
-          echo "🔧 Configuring JFrog CLI..."
-          
-          # Configure JFrog CLI with server details
-          jfrog config add artifactory \
-            --url="${JFROG_URL}" \
-            --user="${JFROG_USER}" \
-            --password="${JFROG_USER_PASSWORD}" \
-            --interactive=false
-          
-          echo "✅ JFrog CLI configured"
-          
-          # Test JFrog CLI connectivity
-          echo "🔍 Testing JFrog CLI connectivity..."
-          jfrog rt ping --server-id=artifactory
-          
-          echo "✅ JFrog CLI connectivity verified"
-
-      # 6. Test Electron repository access
-      - name: "[DIAGNOSE] Test Electron repository access"
-        run: |
-          echo "🔍 Testing Electron repository access..."
-          
-          # Test repository accessibility via REST API
-          REPO_URL="${JFROG_URL%/}/artifactory/api/repositories/${{ env.ELECTRON_REGISTRY }}"
-          echo "Testing repository: $REPO_URL"
-          
-          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_URL" > /tmp/electron_repo_info.json; then
-            echo "✅ Electron repository is accessible via API"
-            echo "Repository info:"
-            cat /tmp/electron_repo_info.json | jq '.' || cat /tmp/electron_repo_info.json
-          else
-            echo "❌ Electron repository not accessible via API"
-            echo "This might indicate:"
-            echo "1. Repository doesn't exist"
-            echo "2. User doesn't have permissions"
-            echo "3. Repository name is incorrect"
-            exit 1
-          fi
-
-      # 7. Install dependencies and build Electron app
+      # 5. Install dependencies and build Electron app
       - name: "[DEPS] Install Electron dependencies"
         run: |
           cd onlysaid-electron
           
           echo "Installing Electron dependencies..."
           
-          # Set npm configuration for better reliability
+          # Set npm configuration for better reliability (SAME AS CI/CD)
           npm config set fetch-timeout 60000
           npm config set fetch-retry-mintimeout 10000
           npm config set fetch-retry-maxtimeout 60000
@@ -168,7 +142,7 @@ jobs:
           echo "✅ Successfully installed Electron dependencies"
         timeout-minutes: 15
 
-      # 8. Build Electron application
+      # 6. Build Electron application
       - name: "[BUILD] Build Electron application"
         working-directory: ./onlysaid-electron
         env:
@@ -190,7 +164,7 @@ jobs:
           npm run package
           echo "✅ Electron build completed successfully"
 
-      # 9. Verify build artifacts
+      # 7. Verify build artifacts
       - name: "[VERIFY] Check build artifacts"
         run: |
           echo "🔍 Checking Electron build artifacts..."
@@ -222,17 +196,24 @@ jobs:
           
           echo "✅ Found $INSTALLER_COUNT installer files"
 
-      # 10. Test upload to JFrog
+      # 8. Upload using same method as CI/CD workflow (NO JFrog CLI config)
       - name: "[PUBLISH] Upload Electron installers to JFrog"
         run: |
           echo "🚀 Uploading Electron installers to JFrog..."
+          echo "Using same upload method as CI/CD workflow"
           
           cd onlysaid-electron/release/build
           
           echo "Target registry: ${{ env.ELECTRON_REGISTRY }}"
           echo "Build version: ${{ env.BUILD_VERSION }}"
           
-          # Upload all built installers to electron registry
+          # Verify that build artifacts exist
+          if [ ! "$(ls -A .)" ]; then
+            echo "❌ No Electron build artifacts found"
+            exit 1
+          fi
+          
+          # Upload all built installers to electron registry (SAME AS CI/CD)
           UPLOADED_COUNT=0
           FAILED_UPLOADS=()
           
@@ -240,11 +221,9 @@ jobs:
             if [ -f "$file" ]; then
               echo "📤 Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
               
-              # Upload with JFrog CLI
-              TARGET_PATH="${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file"
-              
-              if jfrog rt u "$file" "$TARGET_PATH" \
-                --server-id=artifactory \
+              # Use same upload method as CI/CD workflow
+              if jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
+                --server-id="${JFROG_SERVER_ID:-artifactory}" \
                 --build-name="OnlySaid-Electron-Test" \
                 --build-number="${{ env.BUILD_NUMBER }}"; then
                 echo "✅ Successfully uploaded $file"
@@ -268,23 +247,7 @@ jobs:
             echo "✅ All files uploaded successfully"
           fi
 
-      # 11. Verify uploaded files
-      - name: "[VERIFY] Verify uploaded files in JFrog"
-        run: |
-          echo "🔍 Verifying uploaded files in JFrog..."
-          
-          # List files in the target directory
-          TARGET_DIR="${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/"
-          
-          echo "Listing files in: $TARGET_DIR"
-          
-          if jfrog rt s "$TARGET_DIR*" --server-id=artifactory; then
-            echo "✅ Files verified in JFrog repository"
-          else
-            echo "⚠️ Could not verify files (may still be processing)"
-          fi
-
-      # 12. Generate summary
+      # 9. Generate summary
       - name: "[SUMMARY] Test summary"
         run: |
           echo "📋 Generating test summary..."
@@ -304,22 +267,24 @@ jobs:
           
           ### Test Information:
           - **Purpose:** Test Electron installer publishing to JFrog
-          - **JFrog CLI:** ✅ Configured and working
-          - **Repository Access:** ✅ Verified
+          - **Upload Method:** Same as CI/CD workflow (no CLI config)
           - **Build Process:** ✅ Successful
           - **Upload Process:** ✅ Successful
           EOF
           
           echo "✅ Summary generated successfully"
 
-      # 13. Cleanup
+      # 10. Cleanup
       - name: "[CLEANUP] Clean up"
         if: always()
         run: |
           echo "🧹 Cleaning up..."
           
-          # Remove JFrog CLI configuration
-          jfrog config remove artifactory --quiet || echo "JFrog config cleanup failed"
+          # Clean up JFrog configuration if any
+          if [ -n "${JFROG_SERVER_ID}" ]; then
+            echo "Cleaning up JFrog configuration..."
+            jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
+          fi
           
           # Clean up build artifacts to save space
           rm -rf onlysaid-electron/release/build/*
