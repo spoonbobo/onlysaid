@@ -16,6 +16,9 @@ on:
           - staging
           - prod
         default: dev
+  push:
+    branches:
+      - development
 
 env:
   # Build versioning
@@ -171,73 +174,7 @@ jobs:
           echo "📋 Created dummy images:"
           docker images | grep "${{ env.DOCKER_REGISTRY }}"
 
-      # 3. JFrog Docker Registry Authentication with retry
-      - name: "[AUTH] JFrog Docker Registry"
-        run: |
-          echo "🔐 Authenticating with JFrog Docker Registry..."
-          
-          # Configure Docker for insecure registry (JFrog with self-signed cert)
-          echo "🔧 Configuring Docker for JFrog registry..."
-          sudo mkdir -p /etc/docker
-          
-          # Backup existing daemon.json if it exists
-          if [ -f /etc/docker/daemon.json ]; then
-            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
-          fi
-          
-          # Create/update daemon.json with insecure registry
-          sudo tee /etc/docker/daemon.json > /dev/null << EOF
-          {
-            "insecure-registries": ["${DOCKER_LOGIN_HOST}"]
-          }
-          EOF
-          
-          echo "📋 Docker daemon configuration:"
-          sudo cat /etc/docker/daemon.json
-          
-          # Restart Docker daemon
-          echo "🔄 Restarting Docker daemon..."
-          sudo systemctl restart docker
-          
-          # Wait for Docker to be ready
-          echo "⏳ Waiting for Docker daemon to be ready..."
-          sleep 15
-          
-          # Verify Docker is working
-          echo "✅ Verifying Docker status..."
-          docker version
-          
-          # Use Repository Path method for Docker login
-          echo "Using Repository Path method for Docker operations"
-          echo "Docker login host: ${DOCKER_LOGIN_HOST}"
-          
-          RETRY_COUNT=0
-          MAX_RETRIES=3
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            echo "Authentication attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
-            
-            if echo "${{ secrets.JFROG_TOKEN }}" | docker login "${DOCKER_LOGIN_HOST}" -u admin --password-stdin; then
-              echo "✅ Successfully authenticated with JFrog Docker Registry"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Authentication failed, retrying in 10 seconds..."
-                sleep 10
-              else
-                echo "❌ Failed to authenticate with JFrog Docker Registry after $MAX_RETRIES attempts"
-                echo "Please check:"
-                echo "1. JFROG_TOKEN secret is correct"
-                echo "2. JFrog Artifactory server is accessible at: ${DOCKER_LOGIN_HOST}"
-                echo "3. User 'admin' has proper permissions"
-                echo "4. Registry configured as insecure: ${DOCKER_LOGIN_HOST}"
-                exit 1
-              fi
-            fi
-          done
-
-      # 4. Push Docker images to JFrog Registry
+      # 3. Push Docker images to JFrog Registry
       - name: "[PUBLISH] Push Docker images to JFrog Registry"
         run: |
           echo "🚀 Pushing Docker images to JFrog Artifactory..."
@@ -291,7 +228,7 @@ jobs:
             echo "✅ All $PUSHED_COUNT images pushed successfully"
           fi
 
-      # 5. Verify published images
+      # 4. Verify published images
       - name: "[VERIFY] Published images"
         run: |
           echo "🔍 Verifying published images in JFrog..."
@@ -314,7 +251,7 @@ jobs:
           
           echo "📊 Verification Results: $VERIFIED_COUNT/${#IMAGES[@]} images verified"
 
-      # 6. Generate summary
+      # 5. Generate summary
       - name: "[SUMMARY] Publication summary"
         run: |
           echo "📋 Generating publication summary..."
@@ -360,7 +297,7 @@ jobs:
           
           echo "✅ Summary generated successfully"
 
-      # 7. Cleanup
+      # 6. Cleanup
       - name: "[CLEANUP] Clean up dummy images"
         if: always()
         run: |
