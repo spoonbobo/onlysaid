@@ -49,8 +49,9 @@ jobs:
             echo "JFROG_USER=${JFROG_USER}" >> $GITHUB_ENV
             echo "JFROG_USER_PASSWORD=${JFROG_USER_PASSWORD}" >> $GITHUB_ENV
             
-            # Configure registry based on environment using Repository Path method
-            ARTIFACTORY_HOST=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
+            # Configure registry based on environment
+            # Use port 8080 for Docker registry (HTTP)
+            DOCKER_REGISTRY_HOST="1bucket.oneas1a.com:8080"
             case "${{ env.REGISTRY_ENV }}" in
               "dev")
                 DOCKER_REPO="oa-onlysaid-app-docker-dev-local"
@@ -68,12 +69,12 @@ jobs:
             esac
             
             echo "DOCKER_REPO=${DOCKER_REPO}" >> $GITHUB_ENV
-            echo "ARTIFACTORY_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
+            echo "DOCKER_REGISTRY_HOST=${DOCKER_REGISTRY_HOST}" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
             echo "Environment: ${{ env.REGISTRY_ENV }}"
             echo "JFrog URL: ${JFROG_URL}"
-            echo "Artifactory Host: ${ARTIFACTORY_HOST}"
+            echo "Docker Registry Host: ${DOCKER_REGISTRY_HOST}"
             echo "Docker Repository: ${DOCKER_REPO}"
             echo "JFrog User: ${JFROG_USER}"
           else
@@ -92,7 +93,7 @@ jobs:
           
           echo "🔗 Testing JFrog connectivity..."
           
-          # Test JFrog web interface (for API calls)
+          # Test JFrog web interface (HTTPS for web API)
           WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog web interface: ${WEB_URL}"
           
@@ -115,30 +116,8 @@ jobs:
               fi
             fi
           done
-          
-          # Test JFrog Artifactory (use same URL as web interface)
-          ARTIFACTORY_URL="${JFROG_URL%/}/artifactory/api/system/ping"
-          echo "Testing JFrog Artifactory: ${ARTIFACTORY_URL}"
-          
-          RETRY_COUNT=0
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -k --connect-timeout 10 --max-time 30 "${ARTIFACTORY_URL}" > /dev/null; then
-              echo "✅ JFrog Artifactory is accessible (attempt $((RETRY_COUNT + 1)))"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ JFrog Artifactory connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 5
-              else
-                echo "❌ Cannot reach JFrog Artifactory after $MAX_RETRIES attempts"
-                echo "JFrog Artifactory URL: ${JFROG_URL}"
-                exit 1
-              fi
-            fi
-          done
 
-      # Replace the image creation step to build with proper registry tags
+      # Create dummy Docker images
       - name: "[CREATE] Dummy Docker images"
         run: |
           echo "🏗️ Creating dummy Docker images for testing..."
@@ -163,8 +142,8 @@ jobs:
           CMD ["cat", "/app.txt"]
           EOF
             
-            # Build dummy image with Repository Path format: <HOST>/<REPO>/<IMAGE>:<TAG>
-            FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
+            # Build dummy image with correct registry format
+            FULL_IMAGE_NAME="${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
             
             docker build -f /tmp/Dockerfile.${image} -t "${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" .
             docker tag "${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" "${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-latest"
@@ -175,14 +154,14 @@ jobs:
           done
           
           echo "📋 Created dummy images:"
-          docker images | grep "${{ env.ARTIFACTORY_HOST }}"
+          docker images | grep "${{ env.DOCKER_REGISTRY_HOST }}"
 
-      # Add a diagnostic step before the push step
+      # Diagnose JFrog repository
       - name: "[DIAGNOSE] JFrog Repository Health Check"
         run: |
           echo "🔍 Diagnosing JFrog repository configuration..."
           
-          # Test repository accessibility via REST API
+          # Test repository accessibility via REST API (HTTPS for web API)
           REPO_URL="${JFROG_URL%/}/artifactory/api/repositories/${{ env.DOCKER_REPO }}"
           echo "Testing repository: $REPO_URL"
           
@@ -198,8 +177,8 @@ jobs:
             echo "3. Repository is not a Docker repository"
           fi
           
-          # Test Docker registry v2 API
-          DOCKER_V2_URL="https://${{ env.ARTIFACTORY_HOST }}/v2/"
+          # Test Docker registry v2 API (HTTP on port 8080)
+          DOCKER_V2_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/"
           echo "Testing Docker v2 API: $DOCKER_V2_URL"
           
           if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$DOCKER_V2_URL" > /dev/null; then
@@ -208,8 +187,8 @@ jobs:
             echo "❌ Docker v2 API not accessible"
           fi
           
-          # Test specific repository endpoint
-          REPO_V2_URL="https://${{ env.ARTIFACTORY_HOST }}/v2/${{ env.DOCKER_REPO }}/tags/list"
+          # Test specific repository endpoint (HTTP)
+          REPO_V2_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/${{ env.DOCKER_REPO }}/tags/list"
           echo "Testing repository v2 endpoint: $REPO_V2_URL"
           
           if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_V2_URL"; then
@@ -218,16 +197,16 @@ jobs:
             echo "❌ Repository v2 endpoint not accessible"
           fi
 
-      # Modify the push step with better error handling and smaller images
+      # Push Docker images to JFrog Registry
       - name: "[PUBLISH] Push Docker images to JFrog Registry"
         run: |
-          echo "🚀 Pushing Docker images to JFrog Artifactory using Repository Path method..."
+          echo "🚀 Pushing Docker images to JFrog Artifactory..."
           
-          echo "Artifactory Host: ${{ env.ARTIFACTORY_HOST }}"
+          echo "Docker Registry Host: ${{ env.DOCKER_REGISTRY_HOST }}"
           echo "Docker Repository: ${{ env.DOCKER_REPO }}"
           echo "JFrog User: ${{ env.JFROG_USER }}"
           
-          # Configure Docker for insecure registry with minimal, safe settings
+          # Configure Docker for insecure registry (HTTP on port 8080)
           sudo mkdir -p /etc/docker
           
           # Backup existing daemon.json if it exists
@@ -236,14 +215,12 @@ jobs:
             echo "📋 Existing Docker daemon configuration backed up"
           fi
           
-          # Create minimal daemon.json for insecure registry (remove problematic storage options)
+          # Create daemon.json for insecure registry
           sudo tee /etc/docker/daemon.json > /dev/null << EOF
           {
-            "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"],
+            "insecure-registries": ["${{ env.DOCKER_REGISTRY_HOST }}"],
             "registry-mirrors": [],
-            "debug": false,
-            "max-concurrent-uploads": 1,
-            "max-concurrent-downloads": 1
+            "debug": false
           }
           EOF
           
@@ -262,89 +239,32 @@ jobs:
             exit 1
           fi
           
-          # Check current Docker status before restart
-          echo "📋 Current Docker status:"
-          sudo systemctl status docker --no-pager || echo "Docker not running"
-          
-          # Restart Docker daemon with error handling
+          # Restart Docker daemon
           echo "🔄 Restarting Docker daemon..."
           if sudo systemctl restart docker; then
             echo "✅ Docker daemon restarted successfully"
           else
             echo "❌ Docker daemon restart failed"
-            echo "📋 Docker service status:"
-            sudo systemctl status docker --no-pager
-            echo "📋 Docker service logs:"
-            sudo journalctl -xeu docker.service --no-pager -n 20
-            
-            # Try to restore backup configuration
-            if [ -f /etc/docker/daemon.json.backup ]; then
-              echo "🔄 Attempting to restore backup configuration..."
-              sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
-              sudo systemctl restart docker
-              if [ $? -eq 0 ]; then
-                echo "✅ Docker restored with backup configuration"
-              else
-                echo "❌ Failed to restore Docker with backup configuration"
-                # Remove daemon.json entirely and try again
-                sudo rm -f /etc/docker/daemon.json
-                sudo systemctl restart docker
-                if [ $? -eq 0 ]; then
-                  echo "✅ Docker restored with default configuration"
-                  # Re-create minimal config without storage options
-                  sudo tee /etc/docker/daemon.json > /dev/null << EOF
-    {
-      "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"]
-    }
-    EOF
-                  sudo systemctl restart docker
-                else
-                  echo "❌ Failed to restore Docker service"
-                  exit 1
-                fi
-              fi
-            else
-              # No backup, try removing daemon.json entirely
-              echo "🔄 Removing daemon.json and restarting with defaults..."
-              sudo rm -f /etc/docker/daemon.json
-              sudo systemctl restart docker
-              if [ $? -eq 0 ]; then
-                echo "✅ Docker restored with default configuration"
-                # Re-create minimal config
-                sudo tee /etc/docker/daemon.json > /dev/null << EOF
-    {
-      "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"]
-    }
-    EOF
-                sudo systemctl restart docker
-              else
-                echo "❌ Failed to restore Docker service"
-                exit 1
-              fi
-            fi
+            exit 1
           fi
           
-          # Wait for Docker to be fully ready
+          # Wait for Docker to be ready
           echo "⏳ Waiting for Docker to be ready..."
-          sleep 30
+          sleep 15
           
           # Verify Docker is working
           echo "✅ Verifying Docker status..."
           docker version
           
-          # Show Docker info (but don't fail if some commands don't work)
-          echo "📋 Docker system info:"
-          docker info | grep -E "(Storage Driver|Registry|Server Version)" || echo "Some Docker info not available"
-          
-          # Docker login using Repository Path method with retry logic
+          # Docker login with retry logic
           echo "🔐 Authenticating with JFrog Docker registry..."
-          echo "Login command: docker login ${{ env.ARTIFACTORY_HOST }} -u ${{ env.JFROG_USER }}"
+          echo "Login command: docker login ${{ env.DOCKER_REGISTRY_HOST }} -u ${{ env.JFROG_USER }}"
           
           LOGIN_ATTEMPTS=0
           MAX_LOGIN_ATTEMPTS=3
           
           while [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; do
-            if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.ARTIFACTORY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
+            if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.DOCKER_REGISTRY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
               echo "✅ Successfully authenticated with JFrog Docker Registry"
               break
             else
@@ -359,9 +279,9 @@ jobs:
             fi
           done
           
-          # Test repository access before pushing
+          # Test repository access before pushing (HTTP)
           echo "🔍 Testing repository access..."
-          REPO_TEST_URL="https://${{ env.ARTIFACTORY_HOST }}/v2/${{ env.DOCKER_REPO }}/tags/list"
+          REPO_TEST_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/${{ env.DOCKER_REPO }}/tags/list"
           if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_TEST_URL" > /dev/null; then
             echo "✅ Repository is accessible via Docker v2 API"
           else
@@ -392,7 +312,6 @@ jobs:
                   echo "1. Repository is not properly configured as a Docker repository"
                   echo "2. User lacks push permissions"
                   echo "3. Repository path is incorrect"
-                  echo "4. JFrog Artifactory Docker service configuration issue"
                 fi
                 
                 if grep -q "unauthorized" /tmp/push_log_${attempt}.txt; then
@@ -416,75 +335,31 @@ jobs:
             return 1
           }
           
-          # Try pushing just one image first as a test
-          echo "🧪 Testing with single image push first..."
-          TEST_IMAGE="onlysaid-app"
-          FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${TEST_IMAGE}"
-          VERSION_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
+          # Push all images
+          IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
+          PUSHED_COUNT=0
+          FAILED_PUSHES=()
           
-          echo "Test push: $VERSION_TAG"
-          
-          # Try to push with retry logic
-          if push_with_retry "$VERSION_TAG"; then
-            echo "✅ Test push successful!"
+          for image in "${IMAGES[@]}"; do
+            echo "📤 Pushing $image..."
             
-            # If test push works, proceed with all images
-            IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
-            PUSHED_COUNT=1  # Already pushed test image
-            FAILED_PUSHES=()
+            FULL_IMAGE_NAME="${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
+            VERSION_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
+            LATEST_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-latest"
             
-            # Skip the first image since we already pushed it
-            for image in "${IMAGES[@]:1}"; do
-              echo "📤 Pushing $image..."
-              
-              FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
-              VERSION_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
-              LATEST_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-latest"
-              
-              echo "Pushing: $VERSION_TAG"
-              echo "Pushing: $LATEST_TAG"
-              
-              # Push with retry logic
-              if push_with_retry "${VERSION_TAG}" && push_with_retry "${LATEST_TAG}"; then
-                echo "✅ Successfully pushed $image"
-                PUSHED_COUNT=$((PUSHED_COUNT + 1))
-              else
-                echo "❌ Failed to push $image"
-                FAILED_PUSHES+=("$image")
-              fi
-              echo "---"
-            done
+            echo "Pushing: $VERSION_TAG"
+            echo "Pushing: $LATEST_TAG"
             
-            # Also push the latest tag for the test image
-            LATEST_TAG="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${TEST_IMAGE}:${{ env.REGISTRY_ENV }}-latest"
-            echo "Pushing latest tag for test image: $LATEST_TAG"
-            push_with_retry "$LATEST_TAG" || echo "Failed to push latest tag for test image"
-            
-          else
-            echo "❌ Test push failed!"
-            echo "🔍 Detailed error analysis:"
-            
-            # Show all push logs
-            for log_file in /tmp/push_log_*.txt; do
-              if [ -f "$log_file" ]; then
-                echo "=== $log_file ==="
-                cat "$log_file"
-                echo "=================="
-              fi
-            done
-            
-            echo ""
-            echo "🚨 TROUBLESHOOTING STEPS:"
-            echo "1. Verify the Docker repository '${{ env.DOCKER_REPO }}' exists in JFrog"
-            echo "2. Check that the repository is configured as a Docker repository (not generic)"
-            echo "3. Verify user '${{ env.JFROG_USER }}' has push permissions to this repository"
-            echo "4. Check JFrog Artifactory Docker service is running properly"
-            echo "5. Verify the repository path format is correct"
-            echo ""
-            echo "Repository URL: https://${{ env.ARTIFACTORY_HOST }}/ui/repos/tree/General/${{ env.DOCKER_REPO }}"
-            
-            exit 1
-          fi
+            # Push with retry logic
+            if push_with_retry "${VERSION_TAG}" && push_with_retry "${LATEST_TAG}"; then
+              echo "✅ Successfully pushed $image"
+              PUSHED_COUNT=$((PUSHED_COUNT + 1))
+            else
+              echo "❌ Failed to push $image"
+              FAILED_PUSHES+=("$image")
+            fi
+            echo "---"
+          done
           
           # Report results
           echo "📊 Push Results:"
@@ -498,7 +373,7 @@ jobs:
             echo "✅ All images pushed successfully"
           fi
 
-      # 4. Verify published images
+      # Verify published images
       - name: "[VERIFY] Published images"
         run: |
           echo "🔍 Verifying published images in JFrog..."
@@ -507,7 +382,7 @@ jobs:
           VERIFIED_COUNT=0
           
           for image in "${IMAGES[@]}"; do
-            FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
+            FULL_IMAGE_NAME="${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
             IMAGE_URL="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
             echo "Checking $IMAGE_URL..."
             
@@ -522,7 +397,7 @@ jobs:
           
           echo "📊 Verification Results: $VERIFIED_COUNT/${#IMAGES[@]} images verified"
 
-      # 5. Generate summary
+      # Generate summary
       - name: "[SUMMARY] Publication summary"
         run: |
           echo "📋 Generating publication summary..."
@@ -533,7 +408,7 @@ jobs:
           
           **Environment:** ${{ env.REGISTRY_ENV }}
           **Build Version:** ${{ env.BUILD_VERSION }}
-          **Registry:** ${{ env.ARTIFACTORY_HOST }}
+          **Registry:** ${{ env.DOCKER_REGISTRY_HOST }}
           **Test Status:** ✅ SUCCESS
           
           ### Published Dummy Images:
@@ -546,16 +421,15 @@ jobs:
           | onlysaid-docs | ${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }} | ${{ env.REGISTRY_ENV }}-latest | ~5MB |
           
           ### Registry URLs:
-          - App: \`${{ env.ARTIFACTORY_HOST }}/onlysaid-app:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
-          - Socket: \`${{ env.ARTIFACTORY_HOST }}/onlysaid-socket:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
-          - KB: \`${{ env.ARTIFACTORY_HOST }}/onlysaid-kb:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
-          - Docs: \`${{ env.ARTIFACTORY_HOST }}/onlysaid-docs:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
+          - App: \`${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/onlysaid-app:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
+          - Socket: \`${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/onlysaid-socket:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
+          - KB: \`${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/onlysaid-kb:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
+          - Docs: \`${{ env.DOCKER_REGISTRY_HOST }}/${{ env.DOCKER_REPO }}/onlysaid-docs:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
           
           ### Configuration Details:
           - **JFrog Web URL:** ${{ env.JFROG_URL }}
-          - **JFrog Artifactory URL:** ${{ env.JFROG_URL }}
-          - **Docker Registry:** ${{ env.ARTIFACTORY_HOST }}
-          - **Docker Login Host:** ${{ env.ARTIFACTORY_HOST }}
+          - **Docker Registry Host:** ${{ env.DOCKER_REGISTRY_HOST }}
+          - **Docker Repository:** ${{ env.DOCKER_REPO }}
           
           ### Test Information:
           - **Purpose:** Test JFrog Docker registry publishing functionality
@@ -563,12 +437,12 @@ jobs:
           - **Authentication:** ✅ Successful
           - **Network Connectivity:** ✅ Successful
           - **Publishing:** ✅ Successful
-          - **Method:** Repository Path (JFrog recommended)
+          - **Protocol:** HTTP (port 8080)
           EOF
           
           echo "✅ Summary generated successfully"
 
-      # 6. Cleanup
+      # Cleanup
       - name: "[CLEANUP] Clean up dummy images"
         if: always()
         run: |
@@ -588,11 +462,11 @@ jobs:
           fi
           
           # Logout from Docker registry
-          docker logout "${{ env.ARTIFACTORY_HOST }}" || echo "Docker logout failed"
+          docker logout "${{ env.DOCKER_REGISTRY_HOST }}" || echo "Docker logout failed"
           
           # Remove dummy images
           echo "Removing dummy images..."
-          docker images | grep "${{ env.ARTIFACTORY_HOST }}" | awk '{print $3}' | xargs -r docker rmi -f || echo "Some images couldn't be removed"
+          docker images | grep "${{ env.DOCKER_REGISTRY_HOST }}" | awk '{print $3}' | xargs -r docker rmi -f || echo "Some images couldn't be removed"
           
           # Clean up temporary Dockerfiles
           rm -f /tmp/Dockerfile.* || echo "No temporary Dockerfiles to clean"
