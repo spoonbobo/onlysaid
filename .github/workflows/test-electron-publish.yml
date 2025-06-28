@@ -196,17 +196,20 @@ jobs:
           
           echo "✅ Found $INSTALLER_COUNT installer files"
 
-      # 8. Upload using direct URL specification (like CI/CD workflow should)
+      # 8. Upload using HTTP (port 8080) like Docker registry
       - name: "[PUBLISH] Upload Electron installers to JFrog"
         run: |
           echo "🚀 Uploading Electron installers to JFrog..."
-          echo "Using direct URL specification method"
+          echo "Using HTTP (port 8080) method like Docker registry"
           
           cd onlysaid-electron/release/build
           
           echo "Target registry: ${{ env.ELECTRON_REGISTRY }}"
           echo "Build version: ${{ env.BUILD_VERSION }}"
-          echo "JFrog URL: ${{ env.JFROG_URL }}"
+          
+          # Use HTTP URL (port 8080) instead of HTTPS
+          JFROG_HTTP_URL="http://1bucket.oneas1a.com:8080"
+          echo "JFrog HTTP URL: ${JFROG_HTTP_URL}"
           
           # Verify that build artifacts exist
           if [ ! "$(ls -A .)" ]; then
@@ -214,7 +217,7 @@ jobs:
             exit 1
           fi
           
-          # Upload all built installers to electron registry with URL specification
+          # Upload all built installers to electron registry using HTTP
           UPLOADED_COUNT=0
           FAILED_UPLOADS=()
           
@@ -222,18 +225,36 @@ jobs:
             if [ -f "$file" ]; then
               echo "📤 Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
               
-              # Use direct URL specification instead of server-id
+              # Method 1: Try with JFrog CLI using HTTP URL and insecure flag
               if jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
-                --url="${{ env.JFROG_URL }}" \
+                --url="${JFROG_HTTP_URL}" \
                 --user="${{ env.JFROG_USER }}" \
                 --password="${{ env.JFROG_USER_PASSWORD }}" \
+                --insecure-tls=true \
                 --build-name="OnlySaid-Electron-Test" \
                 --build-number="${{ env.BUILD_NUMBER }}"; then
-                echo "✅ Successfully uploaded $file"
+                echo "✅ Successfully uploaded $file with JFrog CLI"
                 UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
               else
-                echo "❌ Failed to upload $file"
-                FAILED_UPLOADS+=("$file")
+                echo "⚠️ JFrog CLI failed, trying with curl..."
+                
+                # Method 2: Fallback to curl (like your example)
+                TARGET_PATH="artifactory/${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file"
+                CURL_URL="${JFROG_HTTP_URL}/${TARGET_PATH}"
+                
+                echo "Uploading with curl to: ${CURL_URL}"
+                
+                if curl -f -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" \
+                  -T "$file" \
+                  --connect-timeout 30 \
+                  --max-time 300 \
+                  "${CURL_URL}"; then
+                  echo "✅ Successfully uploaded $file with curl"
+                  UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
+                else
+                  echo "❌ Failed to upload $file with both methods"
+                  FAILED_UPLOADS+=("$file")
+                fi
               fi
             fi
           done
@@ -270,7 +291,7 @@ jobs:
           
           ### Test Information:
           - **Purpose:** Test Electron installer publishing to JFrog
-          - **Upload Method:** Direct URL specification method
+          - **Upload Method:** HTTP (port 8080) method like Docker registry
           - **Build Process:** ✅ Successful
           - **Upload Process:** ✅ Successful
           EOF
