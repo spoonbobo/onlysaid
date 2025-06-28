@@ -177,7 +177,48 @@ jobs:
           echo "📋 Created dummy images:"
           docker images | grep "${{ env.ARTIFACTORY_HOST }}"
 
-      # Replace the publish step with proper Repository Path method
+      # Add a diagnostic step before the push step
+      - name: "[DIAGNOSE] JFrog Repository Health Check"
+        run: |
+          echo "🔍 Diagnosing JFrog repository configuration..."
+          
+          # Test repository accessibility via REST API
+          REPO_URL="${JFROG_URL%/}/artifactory/api/repositories/${{ env.DOCKER_REPO }}"
+          echo "Testing repository: $REPO_URL"
+          
+          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_URL" > /tmp/repo_info.json; then
+            echo "✅ Repository is accessible via API"
+            echo "Repository info:"
+            cat /tmp/repo_info.json | jq '.' || cat /tmp/repo_info.json
+          else
+            echo "❌ Repository not accessible via API"
+            echo "This might indicate:"
+            echo "1. Repository doesn't exist"
+            echo "2. User doesn't have permissions"
+            echo "3. Repository is not a Docker repository"
+          fi
+          
+          # Test Docker registry v2 API
+          DOCKER_V2_URL="https://${{ env.ARTIFACTORY_HOST }}/v2/"
+          echo "Testing Docker v2 API: $DOCKER_V2_URL"
+          
+          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$DOCKER_V2_URL" > /dev/null; then
+            echo "✅ Docker v2 API is accessible"
+          else
+            echo "❌ Docker v2 API not accessible"
+          fi
+          
+          # Test specific repository endpoint
+          REPO_V2_URL="https://${{ env.ARTIFACTORY_HOST }}/v2/${{ env.DOCKER_REPO }}/tags/list"
+          echo "Testing repository v2 endpoint: $REPO_V2_URL"
+          
+          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_V2_URL"; then
+            echo "✅ Repository v2 endpoint is accessible"
+          else
+            echo "❌ Repository v2 endpoint not accessible"
+          fi
+
+      # Modify the push step with better error handling and smaller images
       - name: "[PUBLISH] Push Docker images to JFrog Registry"
         run: |
           echo "🚀 Pushing Docker images to JFrog Artifactory using Repository Path method..."
@@ -194,10 +235,14 @@ jobs:
             sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
           fi
           
-          # Create daemon.json for insecure registry
+          # Create daemon.json for insecure registry with additional settings
           sudo tee /etc/docker/daemon.json > /dev/null << EOF
           {
-            "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"]
+            "insecure-registries": ["${{ env.ARTIFACTORY_HOST }}"],
+            "registry-mirrors": [],
+            "debug": false,
+            "max-concurrent-uploads": 1,
+            "max-concurrent-downloads": 1
           }
           EOF
           
@@ -214,77 +259,84 @@ jobs:
           docker version
           
           # Docker login using Repository Path method
-          # Login to host only (not the full repository path)
           echo "🔐 Authenticating with JFrog Docker registry..."
           echo "Login command: docker login ${{ env.ARTIFACTORY_HOST }} -u ${{ env.JFROG_USER }}"
           
-          RETRY_COUNT=0
-          MAX_RETRIES=3
-          AUTH_SUCCESS=false
+          if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.ARTIFACTORY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
+            echo "✅ Successfully authenticated with JFrog Docker Registry"
+          else
+            echo "❌ Failed to authenticate"
+            exit 1
+          fi
           
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$AUTH_SUCCESS" = false ]; do
-            echo "Authentication attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
-            
-            if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.ARTIFACTORY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
-              echo "✅ Successfully authenticated with JFrog Docker Registry"
-              AUTH_SUCCESS=true
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Authentication failed, retrying in 10 seconds..."
-                sleep 10
-              else
-                echo "❌ Failed to authenticate with JFrog Docker Registry after $MAX_RETRIES attempts"
-                echo "Please check:"
-                echo "1. JFROG_USER_PASSWORD is correct"
-                echo "2. JFrog Artifactory server is accessible at: ${{ env.ARTIFACTORY_HOST }}"
-                echo "3. User '${{ env.JFROG_USER }}' has proper permissions"
-                exit 1
-              fi
-            fi
-          done
+          # Try pushing just one image first as a test
+          echo "🧪 Testing with single image push first..."
+          TEST_IMAGE="onlysaid-app"
+          FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${TEST_IMAGE}"
+          VERSION_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
           
-          # Push Docker images
-          IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
-          PUSHED_COUNT=0
-          FAILED_PUSHES=()
+          echo "Test push: $VERSION_TAG"
           
-          for image in "${IMAGES[@]}"; do
-            echo "📤 Pushing $image..."
+          # Try to push with verbose output
+          if docker push "$VERSION_TAG" --debug 2>&1 | tee /tmp/push_log.txt; then
+            echo "✅ Test push successful!"
             
-            # Repository Path format: <HOST>/<REPO>/<IMAGE>:<TAG>
-            FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
-            VERSION_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
-            LATEST_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-latest"
+            # If test push works, proceed with all images
+            IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
+            PUSHED_COUNT=1  # Already pushed test image
+            FAILED_PUSHES=()
             
-            echo "Pushing: $VERSION_TAG"
-            echo "Pushing: $LATEST_TAG"
-            
-            # Push with retry logic
-            PUSH_SUCCESS=false
-            RETRY_COUNT=0
-            MAX_RETRIES=3
-            
-            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$PUSH_SUCCESS" = false ]; do
-              echo "Push attempt $((RETRY_COUNT + 1))/$MAX_RETRIES for $image..."
+            # Skip the first image since we already pushed it
+            for image in "${IMAGES[@]:1}"; do
+              echo "📤 Pushing $image..."
               
-              if docker push "${VERSION_TAG}" && docker push "${LATEST_TAG}"; then
+              FULL_IMAGE_NAME="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${image}"
+              VERSION_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
+              LATEST_TAG="${FULL_IMAGE_NAME}:${{ env.REGISTRY_ENV }}-latest"
+              
+              echo "Pushing: $VERSION_TAG"
+              echo "Pushing: $LATEST_TAG"
+              
+              # Push with timeout
+              if timeout 300 docker push "${VERSION_TAG}" && timeout 300 docker push "${LATEST_TAG}"; then
                 echo "✅ Successfully pushed $image"
                 PUSHED_COUNT=$((PUSHED_COUNT + 1))
-                PUSH_SUCCESS=true
               else
-                RETRY_COUNT=$((RETRY_COUNT + 1))
-                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                  echo "⚠️ Push failed, retrying in 10 seconds..."
-                  sleep 10
-                else
-                  echo "❌ Failed to push $image after $MAX_RETRIES attempts"
-                  FAILED_PUSHES+=("$image")
-                fi
+                echo "❌ Failed to push $image"
+                FAILED_PUSHES+=("$image")
               fi
+              echo "---"
             done
-            echo "---"
-          done
+            
+            # Also push the latest tag for the test image
+            LATEST_TAG="${{ env.ARTIFACTORY_HOST }}/${{ env.DOCKER_REPO }}/${TEST_IMAGE}:${{ env.REGISTRY_ENV }}-latest"
+            echo "Pushing latest tag for test image: $LATEST_TAG"
+            timeout 300 docker push "$LATEST_TAG" || echo "Failed to push latest tag for test image"
+            
+          else
+            echo "❌ Test push failed!"
+            echo "Push log:"
+            cat /tmp/push_log.txt
+            
+            echo "🔍 Analyzing the error..."
+            if grep -q "blob upload unknown" /tmp/push_log.txt; then
+              echo "Error: 'blob upload unknown' - This usually indicates:"
+              echo "1. Repository is not properly configured as a Docker repository"
+              echo "2. User lacks push permissions"
+              echo "3. Repository path is incorrect"
+              echo "4. JFrog Artifactory Docker service is not running properly"
+            fi
+            
+            if grep -q "unauthorized" /tmp/push_log.txt; then
+              echo "Error: 'unauthorized' - Check user permissions for Docker repository"
+            fi
+            
+            if grep -q "timeout" /tmp/push_log.txt; then
+              echo "Error: 'timeout' - Network connectivity issues"
+            fi
+            
+            exit 1
+          fi
           
           # Report results
           echo "📊 Push Results:"
@@ -295,7 +347,7 @@ jobs:
             echo "❌ Some images failed to push"
             exit 1
           else
-            echo "✅ All $PUSHED_COUNT images pushed successfully"
+            echo "✅ All images pushed successfully"
           fi
 
       # 4. Verify published images
