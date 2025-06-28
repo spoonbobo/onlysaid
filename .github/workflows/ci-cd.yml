@@ -114,25 +114,29 @@ jobs:
           # Test JFrog web interface connectivity (HTTPS for web API)
           WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog web interface: ${WEB_URL}"
-          if curl -f -s -k --connect-timeout 30 --max-time 30 "${WEB_URL}" > /dev/null; then
-            echo "✅ JFrog web interface is accessible"
-          else
-            echo "❌ Cannot reach JFrog web interface"
-            echo "Please verify JFrog web URL: ${JFROG_URL}"
-            exit 1
-          fi
           
-          # Test Docker registry connectivity (HTTP on port 8080)
-          DOCKER_V2_URL="http://${DOCKER_REGISTRY_HOST}/v2/"
-          echo "Testing Docker registry: ${DOCKER_V2_URL}"
-          if curl -f -s -k --connect-timeout 30 --max-time 30 "${DOCKER_V2_URL}" > /dev/null; then
-            echo "✅ Docker registry is accessible"
-            echo "DOCKER_REGISTRY_ACCESSIBLE=true" >> $GITHUB_ENV
-          else
-            echo "❌ Cannot reach Docker registry"
-            echo "Please verify Docker registry: ${DOCKER_REGISTRY_HOST}"
-            exit 1
-          fi
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
+              echo "✅ JFrog web interface is accessible (attempt $((RETRY_COUNT + 1)))"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️ JFrog web interface connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 5
+              else
+                echo "❌ Cannot reach JFrog web interface after $MAX_RETRIES attempts"
+                echo "JFrog URL: ${JFROG_URL}"
+                exit 1
+              fi
+            fi
+          done
+          
+          echo "✅ JFrog web interface connectivity verified"
+          echo "Note: Docker registry connectivity will be tested after Docker configuration"
         timeout-minutes: 2
         
       # 6. Dependency Management (simplified)
@@ -348,14 +352,59 @@ jobs:
           echo "📋 Docker daemon configuration:"
           sudo cat /etc/docker/daemon.json
           
+          # Validate JSON syntax before restarting
+          echo "🔍 Validating Docker daemon configuration..."
+          if ! sudo cat /etc/docker/daemon.json | jq . > /dev/null 2>&1; then
+            echo "❌ Invalid JSON in daemon.json, reverting to backup"
+            if [ -f /etc/docker/daemon.json.backup ]; then
+              sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
+            else
+              sudo rm -f /etc/docker/daemon.json
+            fi
+            exit 1
+          fi
+          
           # Restart Docker daemon
           echo "🔄 Restarting Docker daemon..."
-          sudo systemctl restart docker
+          if sudo systemctl restart docker; then
+            echo "✅ Docker daemon restarted successfully"
+          else
+            echo "❌ Docker daemon restart failed"
+            exit 1
+          fi
+          
+          # Wait for Docker to be ready
+          echo "⏳ Waiting for Docker to be ready..."
           sleep 15
           
           # Verify Docker is working
           echo "✅ Verifying Docker status..."
           docker version
+          
+          # Test Docker registry connectivity after configuration
+          echo "🔗 Testing Docker registry connectivity..."
+          DOCKER_V2_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/"
+          echo "Testing Docker v2 API: $DOCKER_V2_URL"
+          
+          RETRY_COUNT=0
+          MAX_RETRIES=3
+          
+          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
+            if curl -f -s -k --connect-timeout 10 --max-time 30 "$DOCKER_V2_URL" > /dev/null; then
+              echo "✅ Docker registry is accessible (attempt $((RETRY_COUNT + 1)))"
+              break
+            else
+              RETRY_COUNT=$((RETRY_COUNT + 1))
+              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                echo "⚠️ Docker registry connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                sleep 5
+              else
+                echo "❌ Cannot reach Docker registry after $MAX_RETRIES attempts"
+                echo "Docker Registry: ${{ env.DOCKER_REGISTRY_HOST }}"
+                exit 1
+              fi
+            fi
+          done
           
           # Load Docker images from tar files
           echo "📦 Loading Docker images..."
@@ -364,16 +413,84 @@ jobs:
           docker load < /tmp/onlysaid-kb.tar
           docker load < /tmp/onlysaid-docs.tar
           
-          # Docker login using HTTP registry
+          # Docker login with retry logic
           echo "🔐 Authenticating with JFrog Docker registry..."
           echo "Login command: docker login ${{ env.DOCKER_REGISTRY_HOST }} -u ${{ env.JFROG_USER }}"
           
-          if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.DOCKER_REGISTRY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
-            echo "✅ Docker login successful"
+          LOGIN_ATTEMPTS=0
+          MAX_LOGIN_ATTEMPTS=3
+          
+          while [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; do
+            if echo "${{ env.JFROG_USER_PASSWORD }}" | docker login "${{ env.DOCKER_REGISTRY_HOST }}" -u "${{ env.JFROG_USER }}" --password-stdin; then
+              echo "✅ Successfully authenticated with JFrog Docker Registry"
+              break
+            else
+              LOGIN_ATTEMPTS=$((LOGIN_ATTEMPTS + 1))
+              if [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; then
+                echo "⚠️ Login attempt $LOGIN_ATTEMPTS failed, retrying in 10 seconds..."
+                sleep 10
+              else
+                echo "❌ Failed to authenticate after $MAX_LOGIN_ATTEMPTS attempts"
+                exit 1
+              fi
+            fi
+          done
+          
+          # Test repository access before pushing
+          echo "🔍 Testing repository access..."
+          REPO_TEST_URL="http://${{ env.DOCKER_REGISTRY_HOST }}/v2/oa-onlysaid-app-docker-dev-local/tags/list"
+          if curl -f -s -k -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" "$REPO_TEST_URL" > /dev/null; then
+            echo "✅ Repository is accessible via Docker v2 API"
           else
-            echo "❌ Docker login failed"
-            exit 1
+            echo "❌ Repository not accessible - this may cause push failures"
+            echo "Repository URL: $REPO_TEST_URL"
+            # Continue anyway to see detailed error
           fi
+          
+          # Function to push with retry logic
+          push_with_retry() {
+            local image_tag="$1"
+            local max_attempts=3
+            local attempt=1
+            
+            while [ $attempt -le $max_attempts ]; do
+              echo "Attempt $attempt/$max_attempts: Pushing $image_tag"
+              
+              if timeout 600 docker push "$image_tag" 2>&1 | tee /tmp/push_log_${attempt}.txt; then
+                echo "✅ Successfully pushed $image_tag on attempt $attempt"
+                return 0
+              else
+                echo "❌ Push attempt $attempt failed for $image_tag"
+                
+                # Analyze the error
+                if grep -q "blob upload unknown" /tmp/push_log_${attempt}.txt; then
+                  echo "Error: 'blob upload unknown' detected"
+                  echo "This usually indicates:"
+                  echo "1. Repository is not properly configured as a Docker repository"
+                  echo "2. User lacks push permissions"
+                  echo "3. Repository path is incorrect"
+                fi
+                
+                if grep -q "unauthorized" /tmp/push_log_${attempt}.txt; then
+                  echo "Error: 'unauthorized' - Authentication or permission issue"
+                fi
+                
+                if grep -q "timeout\|connection reset\|EOF" /tmp/push_log_${attempt}.txt; then
+                  echo "Error: Network connectivity issue detected"
+                fi
+                
+                if [ $attempt -lt $max_attempts ]; then
+                  echo "Waiting 30 seconds before retry..."
+                  sleep 30
+                fi
+                
+                attempt=$((attempt + 1))
+              fi
+            done
+            
+            echo "❌ Failed to push $image_tag after $max_attempts attempts"
+            return 1
+          }
           
           # Push images with error handling
           echo "📤 Pushing Docker images..."
@@ -385,7 +502,7 @@ jobs:
             IMAGE_TAG="${{ env.DOCKER_REGISTRY_HOST }}/oa-onlysaid-app-docker-dev-local/${image}:dev-${{ env.BUILD_VERSION }}"
             echo "Pushing ${IMAGE_TAG}..."
             
-            if timeout 600 docker push "${IMAGE_TAG}"; then
+            if push_with_retry "${IMAGE_TAG}"; then
               echo "✅ Successfully pushed ${image}"
               PUSHED_COUNT=$((PUSHED_COUNT + 1))
             else
