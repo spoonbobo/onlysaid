@@ -46,16 +46,19 @@ jobs:
             echo "JFROG_ARTIFACTORY_URL=${JFROG_ARTIFACTORY_URL}" >> $GITHUB_ENV
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             
-            # Configure registry based on environment using the correct Artifactory URL
+            # Configure registry based on environment using Repository Path method
+            # JFROG_URL is for web API access (https://1bucket.oneas1a.com/)
+            # JFROG_ARTIFACTORY_URL is for Docker registry (https://1bucket.oneas1a.com:8081)
+            ARTIFACTORY_HOST=$(echo "${JFROG_ARTIFACTORY_URL}" | sed 's|^https\?://||' | sed 's|/$||')
             case "${{ env.REGISTRY_ENV }}" in
               "dev")
-                DOCKER_REGISTRY="${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-dev-local"
+                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local"
                 ;;
               "staging")
-                DOCKER_REGISTRY="${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-staging-local"
+                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-staging-local"
                 ;;
               "prod")
-                DOCKER_REGISTRY="${JFROG_ARTIFACTORY_URL}/oa-onlysaid-app-docker-prod-local"
+                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-prod-local"
                 ;;
               *)
                 echo "❌ Unknown registry environment: ${{ env.REGISTRY_ENV }}"
@@ -64,12 +67,14 @@ jobs:
             esac
             
             echo "DOCKER_REGISTRY=${DOCKER_REGISTRY}" >> $GITHUB_ENV
+            echo "DOCKER_LOGIN_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
             echo "Environment: ${{ env.REGISTRY_ENV }}"
             echo "JFrog Web URL: ${JFROG_URL}"
             echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
             echo "Docker Registry: ${DOCKER_REGISTRY}"
+            echo "Docker Login Host: ${ARTIFACTORY_HOST}"
           else
             echo "❌ Secrets file not found at $SECRETS_FILE"
             exit 1
@@ -85,12 +90,14 @@ jobs:
           df -h /tmp
           
           echo "🔗 Testing JFrog connectivity..."
+          
+          # Test JFrog web interface (for API calls)
+          WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
+          echo "Testing JFrog web interface: ${WEB_URL}"
+          
           RETRY_COUNT=0
           MAX_RETRIES=3
           
-          # Test JFrog web interface with SSL handling
-          WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"  # Remove trailing slash
-          echo "Testing JFrog web interface: ${WEB_URL}"
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
               echo "✅ JFrog web interface is accessible (attempt $((RETRY_COUNT + 1)))"
@@ -101,66 +108,32 @@ jobs:
                 echo "⚠️ JFrog web interface connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
                 sleep 5
               else
-                echo "⚠️ JFrog web interface not accessible via HTTPS, trying HTTP fallback..."
-                HTTP_WEB_URL=$(echo "${WEB_URL}" | sed 's/https:/http:/')
-                if curl -f -s --connect-timeout 10 --max-time 30 "${HTTP_WEB_URL}" > /dev/null; then
-                  echo "✅ JFrog web interface accessible via HTTP"
-                  break
-                else
-                  echo "❌ Cannot reach JFrog web interface via HTTP or HTTPS"
-                fi
+                echo "❌ Cannot reach JFrog web interface after $MAX_RETRIES attempts"
+                echo "JFrog URL: ${JFROG_URL}"
+                exit 1
               fi
             fi
           done
           
-          # Test JFrog Artifactory (Docker registry) - try both protocols
-          RETRY_COUNT=0
-          ARTIFACTORY_HTTP_URL="http://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
-          ARTIFACTORY_HTTPS_URL="https://${JFROG_ARTIFACTORY_URL}/artifactory/api/system/ping"
+          # Test JFrog Artifactory (for Docker registry)
+          ARTIFACTORY_URL="${JFROG_ARTIFACTORY_URL%/}/artifactory/api/system/ping"
+          echo "Testing JFrog Artifactory: ${ARTIFACTORY_URL}"
           
-          echo "Testing JFrog Artifactory HTTP: ${ARTIFACTORY_HTTP_URL}"
+          RETRY_COUNT=0
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s --connect-timeout 10 --max-time 30 "${ARTIFACTORY_HTTP_URL}" > /dev/null; then
-              echo "✅ JFrog Artifactory is accessible via HTTP (attempt $((RETRY_COUNT + 1)))"
-              echo "ARTIFACTORY_PROTOCOL=http" >> $GITHUB_ENV
+            if curl -f -s -k --connect-timeout 10 --max-time 30 "${ARTIFACTORY_URL}" > /dev/null; then
+              echo "✅ JFrog Artifactory is accessible (attempt $((RETRY_COUNT + 1)))"
               break
             else
               RETRY_COUNT=$((RETRY_COUNT + 1))
               if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ JFrog Artifactory HTTP connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
+                echo "⚠️ JFrog Artifactory connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
                 sleep 5
               else
-                echo "⚠️ JFrog Artifactory not accessible via HTTP, trying HTTPS..."
-                if curl -f -s -k --connect-timeout 10 --max-time 30 "${ARTIFACTORY_HTTPS_URL}" > /dev/null; then
-                  echo "✅ JFrog Artifactory accessible via HTTPS"
-                  echo "ARTIFACTORY_PROTOCOL=https" >> $GITHUB_ENV
-                  break
-                else
-                  echo "❌ Cannot reach JFrog Artifactory after $MAX_RETRIES attempts"
-                  echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
-                  echo "Please check network connectivity and JFrog Artifactory server status"
-                  
-                  # Diagnostic information
-                  echo "🔍 Diagnostic information:"
-                  HOST=$(echo "${JFROG_ARTIFACTORY_URL}" | cut -d: -f1)
-                  PORT=$(echo "${JFROG_ARTIFACTORY_URL}" | cut -d: -f2)
-                  
-                  echo "Testing basic connectivity to host ${HOST}..."
-                  if ping -c 1 "${HOST}" > /dev/null 2>&1; then
-                    echo "✅ Host is reachable via ping"
-                  else
-                    echo "❌ Host is not reachable via ping"
-                  fi
-                  
-                  echo "Testing port ${PORT} connectivity..."
-                  if timeout 10 bash -c "</dev/tcp/${HOST}/${PORT}"; then
-                    echo "✅ Port ${PORT} is open"
-                  else
-                    echo "❌ Port ${PORT} is not accessible"
-                  fi
-                  
-                  exit 1
-                fi
+                echo "❌ Cannot reach JFrog Artifactory after $MAX_RETRIES attempts"
+                echo "JFrog Artifactory URL: ${JFROG_ARTIFACTORY_URL}"
+                echo "Please check network connectivity and port 8081 accessibility"
+                exit 1
               fi
             fi
           done
@@ -205,14 +178,9 @@ jobs:
         run: |
           echo "🔐 Authenticating with JFrog Docker Registry..."
           
-          # Determine the correct login URL based on protocol
-          if [ "${ARTIFACTORY_PROTOCOL}" = "https" ]; then
-            DOCKER_LOGIN_URL="https://${JFROG_ARTIFACTORY_URL}"
-            echo "Using HTTPS for Docker login: ${DOCKER_LOGIN_URL}"
-          else
-            DOCKER_LOGIN_URL="${JFROG_ARTIFACTORY_URL}"
-            echo "Using HTTP for Docker login: ${DOCKER_LOGIN_URL}"
-          fi
+          # Use Repository Path method for Docker login
+          echo "Using Repository Path method for Docker operations"
+          echo "Docker login host: ${DOCKER_LOGIN_HOST}"
           
           RETRY_COUNT=0
           MAX_RETRIES=3
@@ -220,7 +188,7 @@ jobs:
           while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
             echo "Authentication attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
             
-            if echo "${{ secrets.JFROG_TOKEN }}" | docker login "${DOCKER_LOGIN_URL}" -u admin --password-stdin; then
+            if echo "${{ secrets.JFROG_TOKEN }}" | docker login "${DOCKER_LOGIN_HOST}" -u admin --password-stdin; then
               echo "✅ Successfully authenticated with JFrog Docker Registry"
               break
             else
@@ -232,9 +200,9 @@ jobs:
                 echo "❌ Failed to authenticate with JFrog Docker Registry after $MAX_RETRIES attempts"
                 echo "Please check:"
                 echo "1. JFROG_TOKEN secret is correct"
-                echo "2. JFrog Artifactory server is accessible at: ${DOCKER_LOGIN_URL}"
+                echo "2. JFrog Artifactory server is accessible at: ${DOCKER_LOGIN_HOST}"
                 echo "3. User 'admin' has proper permissions"
-                echo "4. Docker registry is properly configured"
+                echo "4. Port 8081 is accessible from the runner"
                 exit 1
               fi
             fi
@@ -247,12 +215,8 @@ jobs:
           echo "🚀 Publishing dummy Docker images to JFrog Artifactory..."
           echo "Target registry: ${{ env.DOCKER_REGISTRY }}"
           
-          # Determine Docker login URL for re-authentication
-          if [ "${ARTIFACTORY_PROTOCOL}" = "https" ]; then
-            DOCKER_LOGIN_URL="https://${JFROG_ARTIFACTORY_URL}"
-          else
-            DOCKER_LOGIN_URL="${JFROG_ARTIFACTORY_URL}"
-          fi
+          # Use Repository Path method for re-authentication
+          DOCKER_LOGIN_URL="${DOCKER_LOGIN_HOST}"
           
           # Define images to push
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
@@ -404,6 +368,7 @@ jobs:
           - **JFrog Web URL:** ${{ env.JFROG_URL }}
           - **JFrog Artifactory URL:** ${{ env.JFROG_ARTIFACTORY_URL }}
           - **Docker Registry:** ${{ env.DOCKER_REGISTRY }}
+          - **Docker Login Host:** ${DOCKER_LOGIN_HOST}
           
           ### Test Information:
           - **Purpose:** Test JFrog Docker registry publishing functionality
@@ -411,6 +376,7 @@ jobs:
           - **Authentication:** ✅ Successful
           - **Network Connectivity:** ✅ Successful
           - **Publishing:** ✅ Successful
+          - **Method:** Repository Path (JFrog recommended)
           EOF
           
           echo "✅ Summary generated successfully"
@@ -421,13 +387,8 @@ jobs:
         run: |
           echo "🧹 Cleaning up dummy Docker images..."
           
-          # Logout from Docker registry using correct URL
-          if [ "${ARTIFACTORY_PROTOCOL}" = "https" ]; then
-            DOCKER_LOGOUT_URL="https://${JFROG_ARTIFACTORY_URL}"
-          else
-            DOCKER_LOGOUT_URL="${JFROG_ARTIFACTORY_URL}"
-          fi
-          docker logout "${DOCKER_LOGOUT_URL}" || echo "Docker logout failed"
+          # Logout from Docker registry using correct host
+          docker logout "${DOCKER_LOGIN_HOST}" || echo "Docker logout failed"
           
           # Remove dummy images
           echo "Removing dummy images..."
