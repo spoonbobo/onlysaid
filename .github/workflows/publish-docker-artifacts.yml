@@ -43,21 +43,19 @@ jobs:
             
             # Export to GitHub Actions environment
             echo "JFROG_URL=${JFROG_URL}" >> $GITHUB_ENV
-            echo "JFROG_ARTIFACTORY_URL=${JFROG_ARTIFACTORY_URL}" >> $GITHUB_ENV
             echo "JFROG_TOKEN=${JFROG_TOKEN}" >> $GITHUB_ENV
             
-            # Configure registry based on environment using Repository Path method
-            # Use JFROG_URL for both web and Docker registry since they use the same port
+            # Configure registry based on environment
             ARTIFACTORY_HOST=$(echo "${JFROG_URL}" | sed 's|^https\?://||' | sed 's|/$||')
             case "${{ env.REGISTRY_ENV }}" in
               "dev")
-                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-dev-local"
+                DOCKER_REPO="oa-onlysaid-app-docker-dev-local"
                 ;;
               "staging")
-                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-staging-local"
+                DOCKER_REPO="oa-onlysaid-app-docker-staging-local"
                 ;;
               "prod")
-                DOCKER_REGISTRY="${ARTIFACTORY_HOST}/oa-onlysaid-app-docker-prod-local"
+                DOCKER_REPO="oa-onlysaid-app-docker-prod-local"
                 ;;
               *)
                 echo "❌ Unknown registry environment: ${{ env.REGISTRY_ENV }}"
@@ -65,25 +63,29 @@ jobs:
                 ;;
             esac
             
-            echo "DOCKER_REGISTRY=${DOCKER_REGISTRY}" >> $GITHUB_ENV
-            echo "DOCKER_LOGIN_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
+            echo "DOCKER_REPO=${DOCKER_REPO}" >> $GITHUB_ENV
+            echo "ARTIFACTORY_HOST=${ARTIFACTORY_HOST}" >> $GITHUB_ENV
             
             echo "✅ Configuration loaded successfully"
             echo "Environment: ${{ env.REGISTRY_ENV }}"
             echo "JFrog Web URL: ${JFROG_URL}"
-            echo "JFrog Artifactory URL: ${JFROG_URL}"  # Use same URL
-            echo "Docker Registry: ${DOCKER_REGISTRY}"
-            echo "Docker Login Host: ${ARTIFACTORY_HOST}"
+            echo "Docker Repository: ${DOCKER_REPO}"
+            echo "Artifactory Host: ${ARTIFACTORY_HOST}"
           else
             echo "❌ Secrets file not found at $SECRETS_FILE"
             exit 1
           fi
 
+      # 2. Setup JFrog CLI
+      - name: "[SETUP] JFrog CLI"
+        uses: jfrog/setup-jfrog-cli@v4
+        
       - name: "[VERIFY] Environment and connectivity"
         run: |
           echo "🔍 Verifying environment..."
           echo "Runner OS: $(uname -a)"
           echo "Docker version: $(docker --version)"
+          echo "JFrog CLI version: $(jfrog --version)"
           echo "Current user: $(whoami)"
           echo "Available disk space:"
           df -h /tmp
@@ -94,49 +96,24 @@ jobs:
           WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
           echo "Testing JFrog web interface: ${WEB_URL}"
           
-          RETRY_COUNT=0
-          MAX_RETRIES=3
+          if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
+            echo "✅ JFrog web interface is accessible"
+          else
+            echo "❌ Cannot reach JFrog web interface"
+            echo "JFrog URL: ${JFROG_URL}"
+            exit 1
+          fi
           
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
-              echo "✅ JFrog web interface is accessible (attempt $((RETRY_COUNT + 1)))"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ JFrog web interface connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 5
-              else
-                echo "❌ Cannot reach JFrog web interface after $MAX_RETRIES attempts"
-                echo "JFrog URL: ${JFROG_URL}"
-                exit 1
-              fi
-            fi
-          done
-          
-          # Test JFrog Artifactory (use same URL as web interface)
-          ARTIFACTORY_URL="${JFROG_URL%/}/artifactory/api/system/ping"
-          echo "Testing JFrog Artifactory: ${ARTIFACTORY_URL}"
-          
-          RETRY_COUNT=0
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            if curl -f -s -k --connect-timeout 10 --max-time 30 "${ARTIFACTORY_URL}" > /dev/null; then
-              echo "✅ JFrog Artifactory is accessible (attempt $((RETRY_COUNT + 1)))"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ JFrog Artifactory connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-                sleep 5
-              else
-                echo "❌ Cannot reach JFrog Artifactory after $MAX_RETRIES attempts"
-                echo "JFrog Artifactory URL: ${JFROG_URL}"
-                exit 1
-              fi
-            fi
-          done
+          # Test JFrog CLI connectivity
+          echo "Testing JFrog CLI connectivity..."
+          if jfrog rt ping; then
+            echo "✅ JFrog CLI can connect to Artifactory"
+          else
+            echo "❌ JFrog CLI cannot connect to Artifactory"
+            exit 1
+          fi
 
-      # 2. Create dummy Docker images
+      # 3. Create dummy Docker images
       - name: "[CREATE] Dummy Docker images"
         run: |
           echo "🏗️ Creating dummy Docker images for testing..."
@@ -161,200 +138,98 @@ jobs:
           CMD ["cat", "/app.txt"]
           EOF
             
-            # Build dummy image
-            docker build -f /tmp/Dockerfile.${image} -t "${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" .
-            docker tag "${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" "${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-latest"
+            # Build dummy image with local tag
+            docker build -f /tmp/Dockerfile.${image} -t "${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" .
+            docker tag "${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" "${image}:${{ env.REGISTRY_ENV }}-latest"
             
             echo "✅ Created dummy $image image"
           done
           
           echo "📋 Created dummy images:"
-          docker images | grep "${{ env.DOCKER_REGISTRY }}"
+          docker images | grep -E "(onlysaid-app|onlysaid-socket|onlysaid-kb|onlysaid-docs)"
 
-      # 3. JFrog Docker Registry Authentication with retry
-      - name: "[AUTH] JFrog Docker Registry"
+      # 4. Export Docker images as tar files
+      - name: "[EXPORT] Export Docker images as tar files"
         run: |
-          echo "🔐 Authenticating with JFrog Docker Registry..."
+          echo "📦 Exporting Docker images as tar files..."
           
-          # Configure Docker for insecure registry (JFrog with self-signed cert)
-          echo "🔧 Configuring Docker for JFrog registry..."
-          sudo mkdir -p /etc/docker
-          
-          # Backup existing daemon.json if it exists
-          if [ -f /etc/docker/daemon.json ]; then
-            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
-          fi
-          
-          # Create/update daemon.json with insecure registry
-          sudo tee /etc/docker/daemon.json > /dev/null << EOF
-          {
-            "insecure-registries": ["${DOCKER_LOGIN_HOST}"]
-          }
-          EOF
-          
-          echo "📋 Docker daemon configuration:"
-          sudo cat /etc/docker/daemon.json
-          
-          # Restart Docker daemon
-          echo "🔄 Restarting Docker daemon..."
-          sudo systemctl restart docker
-          
-          # Wait for Docker to be ready
-          echo "⏳ Waiting for Docker daemon to be ready..."
-          sleep 15
-          
-          # Verify Docker is working
-          echo "✅ Verifying Docker status..."
-          docker version
-          
-          # Use Repository Path method for Docker login
-          echo "Using Repository Path method for Docker operations"
-          echo "Docker login host: ${DOCKER_LOGIN_HOST}"
-          
-          RETRY_COUNT=0
-          MAX_RETRIES=3
-          
-          while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-            echo "Authentication attempt $((RETRY_COUNT + 1))/$MAX_RETRIES..."
-            
-            if echo "${{ secrets.JFROG_TOKEN }}" | docker login "${DOCKER_LOGIN_HOST}" -u admin --password-stdin; then
-              echo "✅ Successfully authenticated with JFrog Docker Registry"
-              break
-            else
-              RETRY_COUNT=$((RETRY_COUNT + 1))
-              if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-                echo "⚠️ Authentication failed, retrying in 10 seconds..."
-                sleep 10
-              else
-                echo "❌ Failed to authenticate with JFrog Docker Registry after $MAX_RETRIES attempts"
-                echo "Please check:"
-                echo "1. JFROG_TOKEN secret is correct"
-                echo "2. JFrog Artifactory server is accessible at: ${DOCKER_LOGIN_HOST}"
-                echo "3. User 'admin' has proper permissions"
-                echo "4. Registry configured as insecure: ${DOCKER_LOGIN_HOST}"
-                exit 1
-              fi
-            fi
-          done
-
-      # 4. Push dummy Docker images with comprehensive retry logic
-      - name: "[PUBLISH] Push dummy Docker images to JFrog"
-        id: push-images
-        run: |
-          echo "🚀 Publishing dummy Docker images to JFrog Artifactory..."
-          echo "Target registry: ${{ env.DOCKER_REGISTRY }}"
-          
-          # Use Repository Path method for re-authentication
-          DOCKER_LOGIN_URL="${DOCKER_LOGIN_HOST}"
-          
-          # Define images to push
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
           
-          PUSHED_IMAGES=()
-          FAILED_IMAGES=()
+          mkdir -p /tmp/docker-exports
           
-          # Function to push with retry
-          push_with_retry() {
-            local image_name=$1
-            local tag_version=$2
-            local tag_latest=$3
-            local max_retries=3
-            local retry_count=0
-            
-            echo "📤 Pushing $image_name..."
-            echo "Version tag: $tag_version"
-            echo "Latest tag: $tag_latest"
-            
-            # Push version tag
-            while [ $retry_count -lt $max_retries ]; do
-              echo "Pushing $tag_version (attempt $((retry_count + 1))/$max_retries)..."
-              
-              if timeout 300 docker push "$tag_version"; then
-                echo "✅ Successfully pushed $tag_version"
-                break
-              else
-                retry_count=$((retry_count + 1))
-                if [ $retry_count -lt $max_retries ]; then
-                  echo "⚠️ Push failed, retrying in 15 seconds..."
-                  sleep 15
-                  
-                  # Try to re-authenticate before retry
-                  echo "Re-authenticating before retry..."
-                  echo "${{ secrets.JFROG_TOKEN }}" | docker login "${DOCKER_LOGIN_URL}" -u admin --password-stdin
-                else
-                  echo "❌ Failed to push $tag_version after $max_retries attempts"
-                  return 1
-                fi
-              fi
-            done
-            
-            # Push latest tag
-            retry_count=0
-            while [ $retry_count -lt $max_retries ]; do
-              echo "Pushing $tag_latest (attempt $((retry_count + 1))/$max_retries)..."
-              
-              if timeout 300 docker push "$tag_latest"; then
-                echo "✅ Successfully pushed $tag_latest"
-                return 0
-              else
-                retry_count=$((retry_count + 1))
-                if [ $retry_count -lt $max_retries ]; then
-                  echo "⚠️ Push failed, retrying in 15 seconds..."
-                  sleep 15
-                  
-                  # Try to re-authenticate before retry
-                  echo "Re-authenticating before retry..."
-                  echo "${{ secrets.JFROG_TOKEN }}" | docker login "${DOCKER_LOGIN_URL}" -u admin --password-stdin
-                else
-                  echo "❌ Failed to push $tag_latest after $max_retries attempts"
-                  return 1
-                fi
-              fi
-            done
-          }
-          
-          # Push each image
           for image in "${IMAGES[@]}"; do
-            VERSION_TAG="${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
-            LATEST_TAG="${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-latest"
+            echo "Exporting $image..."
             
-            echo "🔄 Processing $image..."
-            if push_with_retry "$image" "$VERSION_TAG" "$LATEST_TAG"; then
-              PUSHED_IMAGES+=("$image")
-              echo "✅ $image pushed successfully"
+            # Export both version and latest tags
+            docker save \
+              "${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}" \
+              "${image}:${{ env.REGISTRY_ENV }}-latest" \
+              -o "/tmp/docker-exports/${image}-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar"
+            
+            echo "✅ Exported ${image} ($(du -h /tmp/docker-exports/${image}-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar | cut -f1))"
+          done
+          
+          echo "📋 Exported files:"
+          ls -lh /tmp/docker-exports/
+
+      # 5. Upload Docker images using JFrog CLI
+      - name: "[PUBLISH] Upload Docker images via JFrog CLI"
+        run: |
+          echo "🚀 Uploading Docker images to JFrog Artifactory using JFrog CLI..."
+          echo "Target repository: ${{ env.DOCKER_REPO }}"
+          
+          IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
+          UPLOADED_COUNT=0
+          FAILED_UPLOADS=()
+          
+          for image in "${IMAGES[@]}"; do
+            TAR_FILE="/tmp/docker-exports/${image}-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar"
+            TARGET_PATH="${{ env.DOCKER_REPO }}/${image}/${{ env.REGISTRY_ENV }}/${image}-${{ env.BUILD_VERSION }}.tar"
+            
+            echo "📤 Uploading $image..."
+            echo "Source: $TAR_FILE"
+            echo "Target: $TARGET_PATH"
+            
+            if jfrog rt u "$TAR_FILE" "$TARGET_PATH" \
+              --build-name="OnlySaid-Docker-Test" \
+              --build-number="${{ env.BUILD_NUMBER }}" \
+              --detailed-summary; then
+              echo "✅ Successfully uploaded $image"
+              UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
             else
-              FAILED_IMAGES+=("$image")
-              echo "❌ $image push failed"
+              echo "❌ Failed to upload $image"
+              FAILED_UPLOADS+=("$image")
             fi
             echo "---"
           done
           
           # Report results
-          echo "📊 Push Results:"
-          echo "Successfully pushed (${#PUSHED_IMAGES[@]}): ${PUSHED_IMAGES[*]}"
+          echo "📊 Upload Results:"
+          echo "Successfully uploaded: $UPLOADED_COUNT/${#IMAGES[@]}"
+          echo "Uploaded images: $(echo "${IMAGES[@]}" | tr ' ' '\n' | grep -v "$(printf '%s\n' "${FAILED_UPLOADS[@]}")" | tr '\n' ' ' || echo "All images uploaded")"
           
-          if [ ${#FAILED_IMAGES[@]} -gt 0 ]; then
-            echo "Failed to push (${#FAILED_IMAGES[@]}): ${FAILED_IMAGES[*]}"
-            echo "❌ Some images failed to push"
+          if [ ${#FAILED_UPLOADS[@]} -gt 0 ]; then
+            echo "Failed uploads: ${FAILED_UPLOADS[*]}"
+            echo "❌ Some images failed to upload"
             exit 1
           else
-            echo "✅ All ${#PUSHED_IMAGES[@]} images pushed successfully"
+            echo "✅ All $UPLOADED_COUNT images uploaded successfully"
           fi
 
-      # 5. Verify published images
-      - name: "[VERIFY] Published images"
+      # 6. Verify uploaded artifacts
+      - name: "[VERIFY] Verify uploaded artifacts"
         run: |
-          echo "🔍 Verifying published images in JFrog..."
+          echo "🔍 Verifying uploaded artifacts in JFrog..."
           
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
           VERIFIED_COUNT=0
           
           for image in "${IMAGES[@]}"; do
-            IMAGE_URL="${{ env.DOCKER_REGISTRY }}/${image}:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}"
-            echo "Checking $IMAGE_URL..."
+            TARGET_PATH="${{ env.DOCKER_REPO }}/${image}/${{ env.REGISTRY_ENV }}/${image}-${{ env.BUILD_VERSION }}.tar"
+            echo "Checking $TARGET_PATH..."
             
-            # Use docker manifest inspect to verify the image exists
-            if docker manifest inspect "$IMAGE_URL" > /dev/null 2>&1; then
+            # Use JFrog CLI to check if file exists
+            if jfrog rt s "$TARGET_PATH" --count | grep -q "1"; then
               echo "✅ $image verified successfully"
               VERIFIED_COUNT=$((VERIFIED_COUNT + 1))
             else
@@ -363,78 +238,95 @@ jobs:
           done
           
           echo "📊 Verification Results: $VERIFIED_COUNT/${#IMAGES[@]} images verified"
+          
+          # List all files in the repository
+          echo "📋 Files in repository:"
+          jfrog rt s "${{ env.DOCKER_REPO }}/*" --include-dirs=false
 
-      # 6. Generate summary
+      # 7. Test Docker image download (optional)
+      - name: "[TEST] Test Docker image download"
+        run: |
+          echo "🔽 Testing Docker image download..."
+          
+          # Try to download one image and load it
+          TEST_IMAGE="onlysaid-app"
+          TARGET_PATH="${{ env.DOCKER_REPO }}/${TEST_IMAGE}/${{ env.REGISTRY_ENV }}/${TEST_IMAGE}-${{ env.BUILD_VERSION }}.tar"
+          DOWNLOAD_PATH="/tmp/downloaded-${TEST_IMAGE}.tar"
+          
+          echo "Downloading $TARGET_PATH to $DOWNLOAD_PATH..."
+          
+          if jfrog rt dl "$TARGET_PATH" "$DOWNLOAD_PATH"; then
+            echo "✅ Successfully downloaded $TEST_IMAGE"
+            
+            # Try to load the image
+            echo "Loading Docker image..."
+            if docker load -i "$DOWNLOAD_PATH"; then
+              echo "✅ Successfully loaded Docker image"
+              
+              # Show loaded images
+              echo "📋 Loaded images:"
+              docker images | grep "$TEST_IMAGE"
+            else
+              echo "❌ Failed to load Docker image"
+            fi
+          else
+            echo "❌ Failed to download $TEST_IMAGE"
+          fi
+
+      # 8. Generate summary
       - name: "[SUMMARY] Publication summary"
         run: |
           echo "📋 Generating publication summary..."
           
           # Create detailed summary
           cat << EOF >> $GITHUB_STEP_SUMMARY
-          ## Dummy Docker Publication Test Results
+          ## Docker Artifacts Upload Test Results
           
           **Environment:** ${{ env.REGISTRY_ENV }}
           **Build Version:** ${{ env.BUILD_VERSION }}
-          **Registry:** ${{ env.DOCKER_REGISTRY }}
+          **Repository:** ${{ env.DOCKER_REPO }}
           **Test Status:** ✅ SUCCESS
           
-          ### Published Dummy Images:
+          ### Uploaded Docker Images:
           
-          | Image | Version Tag | Latest Tag | Size |
-          |-------|-------------|------------|------|
-          | onlysaid-app | ${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }} | ${{ env.REGISTRY_ENV }}-latest | ~5MB |
-          | onlysaid-socket | ${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }} | ${{ env.REGISTRY_ENV }}-latest | ~5MB |
-          | onlysaid-kb | ${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }} | ${{ env.REGISTRY_ENV }}-latest | ~5MB |
-          | onlysaid-docs | ${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }} | ${{ env.REGISTRY_ENV }}-latest | ~5MB |
-          
-          ### Registry URLs:
-          - App: \`${{ env.DOCKER_REGISTRY }}/onlysaid-app:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
-          - Socket: \`${{ env.DOCKER_REGISTRY }}/onlysaid-socket:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
-          - KB: \`${{ env.DOCKER_REGISTRY }}/onlysaid-kb:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
-          - Docs: \`${{ env.DOCKER_REGISTRY }}/onlysaid-docs:${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}\`
+          | Image | File Name | Repository Path |
+          |-------|-----------|-----------------|
+          | onlysaid-app | onlysaid-app-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar | ${{ env.DOCKER_REPO }}/onlysaid-app/${{ env.REGISTRY_ENV }}/ |
+          | onlysaid-socket | onlysaid-socket-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar | ${{ env.DOCKER_REPO }}/onlysaid-socket/${{ env.REGISTRY_ENV }}/ |
+          | onlysaid-kb | onlysaid-kb-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar | ${{ env.DOCKER_REPO }}/onlysaid-kb/${{ env.REGISTRY_ENV }}/ |
+          | onlysaid-docs | onlysaid-docs-${{ env.REGISTRY_ENV }}-${{ env.BUILD_VERSION }}.tar | ${{ env.DOCKER_REPO }}/onlysaid-docs/${{ env.REGISTRY_ENV }}/ |
           
           ### Configuration Details:
-          - **JFrog Web URL:** ${{ env.JFROG_URL }}
-          - **JFrog Artifactory URL:** ${{ env.JFROG_URL }}
-          - **Docker Registry:** ${{ env.DOCKER_REGISTRY }}
-          - **Docker Login Host:** ${DOCKER_LOGIN_HOST}
+          - **JFrog URL:** ${{ env.JFROG_URL }}
+          - **Docker Repository:** ${{ env.DOCKER_REPO }}
+          - **Artifactory Host:** ${{ env.ARTIFACTORY_HOST }}
+          - **Upload Method:** JFrog CLI (rt upload)
           
           ### Test Information:
-          - **Purpose:** Test JFrog Docker registry publishing functionality
+          - **Purpose:** Test JFrog Docker artifact publishing using JFrog CLI
+          - **Method:** Export Docker images as tar files and upload via JFrog CLI
           - **Images:** Dummy Alpine Linux containers with metadata
-          - **Authentication:** ✅ Successful
-          - **Network Connectivity:** ✅ Successful
-          - **Publishing:** ✅ Successful
-          - **Method:** Repository Path (JFrog recommended)
+          - **JFrog CLI Connectivity:** ✅ Successful
+          - **Upload:** ✅ Successful
+          - **Verification:** ✅ Successful
           EOF
           
           echo "✅ Summary generated successfully"
 
-      # 7. Cleanup
-      - name: "[CLEANUP] Clean up dummy images"
+      # 9. Cleanup
+      - name: "[CLEANUP] Clean up test artifacts"
         if: always()
         run: |
-          echo "🧹 Cleaning up dummy Docker images..."
+          echo "🧹 Cleaning up test artifacts..."
           
-          # Restore original Docker daemon configuration
-          if [ -f /etc/docker/daemon.json.backup ]; then
-            echo "Restoring original Docker daemon configuration..."
-            sudo mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
-            sudo systemctl restart docker
-            sleep 10
-          else
-            echo "Removing Docker insecure registry configuration..."
-            sudo rm -f /etc/docker/daemon.json
-            sudo systemctl restart docker
-            sleep 10
-          fi
+          # Remove local Docker images
+          echo "Removing local Docker images..."
+          docker images | grep -E "(onlysaid-app|onlysaid-socket|onlysaid-kb|onlysaid-docs)" | awk '{print $3}' | xargs -r docker rmi -f || echo "Some images couldn't be removed"
           
-          # Logout from Docker registry using correct host
-          docker logout "${DOCKER_LOGIN_HOST}" || echo "Docker logout failed"
-          
-          # Remove dummy images
-          echo "Removing dummy images..."
-          docker images | grep "${{ env.DOCKER_REGISTRY }}" | awk '{print $3}' | xargs -r docker rmi -f || echo "Some images couldn't be removed"
+          # Clean up exported tar files
+          echo "Cleaning up exported tar files..."
+          rm -rf /tmp/docker-exports
+          rm -f /tmp/downloaded-*.tar
           
           # Clean up temporary Dockerfiles
           rm -f /tmp/Dockerfile.* || echo "No temporary Dockerfiles to clean"
