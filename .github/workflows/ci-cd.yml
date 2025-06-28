@@ -3,10 +3,10 @@ name: OnlySaid CI/CD
 on:
   push:
     branches:
-      - disabled
+      - development
   pull_request:
     branches:
-      - disabled
+      - development
 
 env:
   # Build versioning
@@ -546,8 +546,15 @@ jobs:
       - name: Upload Electron Installers to JFrog Artifactory
         run: |
           echo "Uploading Electron installers to oa-onlysaid-electron-dev-local..."
+          echo "Using HTTP (port 8080) method like Docker registry"
           
           cd onlysaid-electron/release/build
+          
+          # Use HTTP URL (port 8080) instead of HTTPS
+          JFROG_HTTP_URL="http://1bucket.oneas1a.com:8080"
+          echo "JFrog HTTP URL: ${JFROG_HTTP_URL}"
+          echo "Target registry: ${{ env.ELECTRON_REGISTRY }}"
+          echo "Build version: ${{ env.BUILD_VERSION }}"
           
           # Verify that build artifacts exist
           if [ ! "$(ls -A .)" ]; then
@@ -555,25 +562,59 @@ jobs:
             exit 1
           fi
           
-          # Upload all built installers to electron dev repository
+          # Upload all built installers to electron registry using HTTP
           UPLOADED_COUNT=0
+          FAILED_UPLOADS=()
+          
           for file in *.exe *.dmg *.AppImage *.deb *.rpm; do
             if [ -f "$file" ]; then
-              echo "Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
-              jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
-                --server-id="${JFROG_SERVER_ID:-artifactory}" \
+              echo "📤 Uploading $file to ${{ env.ELECTRON_REGISTRY }}..."
+              
+              # Method 1: Try with JFrog CLI using HTTP URL and insecure flag
+              if jfrog rt u "$file" "${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file" \
+                --url="${JFROG_HTTP_URL}" \
+                --user="${{ env.JFROG_USER }}" \
+                --password="${{ env.JFROG_USER_PASSWORD }}" \
+                --insecure-tls=true \
                 --build-name="OnlySaid-Electron" \
-                --build-number="${{ env.BUILD_NUMBER }}"
-              UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
+                --build-number="${{ env.BUILD_NUMBER }}"; then
+                echo "✅ Successfully uploaded $file with JFrog CLI"
+                UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
+              else
+                echo "⚠️ JFrog CLI failed, trying with curl..."
+                
+                # Method 2: Fallback to curl (like working test)
+                TARGET_PATH="artifactory/${{ env.ELECTRON_REGISTRY }}/v${{ env.BUILD_VERSION }}/$file"
+                CURL_URL="${JFROG_HTTP_URL}/${TARGET_PATH}"
+                
+                echo "Uploading with curl to: ${CURL_URL}"
+                
+                if curl -f -u "${{ env.JFROG_USER }}:${{ env.JFROG_USER_PASSWORD }}" \
+                  -T "$file" \
+                  --connect-timeout 30 \
+                  --max-time 300 \
+                  "${CURL_URL}"; then
+                  echo "✅ Successfully uploaded $file with curl"
+                  UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
+                else
+                  echo "❌ Failed to upload $file with both methods"
+                  FAILED_UPLOADS+=("$file")
+                fi
+              fi
             fi
           done
           
-          if [ $UPLOADED_COUNT -eq 0 ]; then
-            echo "❌ No Electron installers were uploaded"
-            exit 1
-          fi
+          # Report results
+          echo "📊 Upload Results:"
+          echo "Successfully uploaded: $UPLOADED_COUNT files"
           
-          echo "✅ Successfully uploaded $UPLOADED_COUNT Electron installers"
+          if [ ${#FAILED_UPLOADS[@]} -gt 0 ]; then
+            echo "Failed uploads: ${FAILED_UPLOADS[*]}"
+            echo "❌ Some Electron installers failed to upload"
+            exit 1
+          else
+            echo "✅ All Electron installers uploaded successfully"
+          fi
         
       # Store artifacts for potential manual download/testing
       - name: Upload Build Artifacts
