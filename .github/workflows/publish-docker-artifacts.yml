@@ -189,18 +189,78 @@ jobs:
           
           # Configure Docker for insecure registry first
           sudo mkdir -p /etc/docker
+          
+          # Backup existing daemon.json if it exists
+          if [ -f /etc/docker/daemon.json ]; then
+            sudo cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
+          fi
+          
+          # Create proper daemon.json for JFrog
           sudo tee /etc/docker/daemon.json > /dev/null << EOF
           {
-            "insecure-registries": ["${{ env.DOCKER_LOGIN_HOST }}"]
+            "insecure-registries": ["${{ env.DOCKER_LOGIN_HOST }}"],
+            "registry-mirrors": [],
+            "debug": false
           }
           EOF
           
-          sudo systemctl restart docker
-          sleep 15
+          echo "📋 Docker daemon configuration:"
+          sudo cat /etc/docker/daemon.json
           
-          # Login to Docker registry
-          echo "🔐 Authenticating with Docker registry..."
-          echo "${{ env.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_LOGIN_HOST }}" -u admin --password-stdin
+          sudo systemctl restart docker
+          sleep 20
+          
+          # Verify Docker is working
+          echo "✅ Verifying Docker status..."
+          docker version
+          
+          # For JFrog, we need to login to the specific repository path
+          echo "🔐 Authenticating with JFrog Docker registry..."
+          echo "Login URL: ${{ env.DOCKER_REGISTRY }}"
+          
+          # Try multiple authentication methods
+          AUTH_SUCCESS=false
+          
+          # Method 1: Login to the full registry path
+          echo "Trying authentication method 1: Full registry path"
+          if echo "${{ env.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_REGISTRY }}" -u admin --password-stdin; then
+            echo "✅ Authentication successful with full registry path"
+            AUTH_SUCCESS=true
+          else
+            echo "⚠️ Method 1 failed"
+          fi
+          
+          # Method 2: Login to just the host
+          if [ "$AUTH_SUCCESS" = false ]; then
+            echo "Trying authentication method 2: Host only"
+            if echo "${{ env.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_LOGIN_HOST }}" -u admin --password-stdin; then
+              echo "✅ Authentication successful with host only"
+              AUTH_SUCCESS=true
+            else
+              echo "⚠️ Method 2 failed"
+            fi
+          fi
+          
+          # Method 3: Use JFrog's specific Docker login format
+          if [ "$AUTH_SUCCESS" = false ]; then
+            echo "Trying authentication method 3: JFrog format"
+            if echo "${{ env.JFROG_TOKEN }}" | docker login "${{ env.DOCKER_LOGIN_HOST }}/${{ env.DOCKER_REPO }}" -u admin --password-stdin; then
+              echo "✅ Authentication successful with JFrog format"
+              AUTH_SUCCESS=true
+            else
+              echo "⚠️ Method 3 failed"
+            fi
+          fi
+          
+          if [ "$AUTH_SUCCESS" = false ]; then
+            echo "❌ All authentication methods failed"
+            echo "Debug information:"
+            echo "JFROG_URL: ${{ env.JFROG_URL }}"
+            echo "DOCKER_LOGIN_HOST: ${{ env.DOCKER_LOGIN_HOST }}"
+            echo "DOCKER_REGISTRY: ${{ env.DOCKER_REGISTRY }}"
+            echo "DOCKER_REPO: ${{ env.DOCKER_REPO }}"
+            exit 1
+          fi
           
           IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
           PUSHED_COUNT=0
@@ -216,14 +276,29 @@ jobs:
             echo "Pushing: $VERSION_TAG"
             echo "Pushing: $LATEST_TAG"
             
-            # Push to registry
-            if docker push "${VERSION_TAG}" && docker push "${LATEST_TAG}"; then
-              echo "✅ Successfully pushed $image"
-              PUSHED_COUNT=$((PUSHED_COUNT + 1))
-            else
-              echo "❌ Failed to push $image"
-              FAILED_PUSHES+=("$image")
-            fi
+            # Push to registry with retry logic
+            PUSH_SUCCESS=false
+            RETRY_COUNT=0
+            MAX_RETRIES=3
+            
+            while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$PUSH_SUCCESS" = false ]; do
+              echo "Push attempt $((RETRY_COUNT + 1))/$MAX_RETRIES for $image..."
+              
+              if docker push "${VERSION_TAG}" && docker push "${LATEST_TAG}"; then
+                echo "✅ Successfully pushed $image"
+                PUSHED_COUNT=$((PUSHED_COUNT + 1))
+                PUSH_SUCCESS=true
+              else
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
+                  echo "⚠️ Push failed, retrying in 10 seconds..."
+                  sleep 10
+                else
+                  echo "❌ Failed to push $image after $MAX_RETRIES attempts"
+                  FAILED_PUSHES+=("$image")
+                fi
+              fi
+            done
             echo "---"
           done
           
