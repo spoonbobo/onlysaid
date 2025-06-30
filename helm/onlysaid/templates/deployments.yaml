@@ -1,0 +1,468 @@
+{{- if .Values.knowledgeBase.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.knowledgeBase.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.knowledgeBase.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.knowledgeBase.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.knowledgeBase.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.knowledgeBase.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.knowledgeBase.name }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.knowledgeBase.image.repository }}:{{ .Values.knowledgeBase.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.knowledgeBase.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.knowledgeBase.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- include "onlysaid.serviceUrls" . | nindent 12 }}
+          resources:
+            {{- toYaml .Values.knowledgeBase.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /storage
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+      volumes:
+        - name: storage
+          {{- if .Values.knowledgeBase.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.knowledgeBase.name }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: qdrant-storage
+          {{- if .Values.qdrant.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.qdrant.name }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- end }}
+{{- if .Values.qdrant.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.qdrant.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.qdrant.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.qdrant.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.qdrant.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.qdrant.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.qdrant.name }}
+          image: "{{ .Values.qdrant.image.repository }}:{{ .Values.qdrant.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.qdrant.service.targetPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.qdrant.resources | nindent 12 }}
+          volumeMounts:
+            - name: qdrant-storage
+              mountPath: /qdrant/storage
+      volumes:
+        - name: qdrant-storage
+          {{- if .Values.qdrant.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.qdrant.name }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- end }}
+{{- if .Values.stt.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.stt.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.stt.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.stt.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.stt.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.stt.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      {{- with .Values.stt.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.stt.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.stt.name }}
+          {{- if .Values.stt.securityContext.privileged }}
+          securityContext:
+            privileged: true
+          {{- end }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.stt.image.repository }}:{{ .Values.stt.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.stt.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.stt.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.stt.resources | nindent 12 }}
+          volumeMounts:
+            - name: storage
+              mountPath: /storage
+            - name: whisper-cache
+              mountPath: /root/.cache/huggingface/hub
+      volumes:
+        - name: storage
+          {{- if .Values.stt.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.stt.name }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: whisper-cache
+          {{- if .Values.stt.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.stt.name }}-whisper-cache
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- end }}
+{{- if .Values.ollama.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.ollama.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.ollama.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.ollama.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.ollama.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.ollama.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      {{- with .Values.ollama.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.ollama.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      containers:
+        - name: {{ .Values.ollama.name }}
+          image: "{{ .Values.ollama.image.repository }}:{{ .Values.ollama.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.ollama.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.ollama.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.ollama.resources | nindent 12 }}
+          volumeMounts:
+            - name: ollama-data
+              mountPath: /root/.ollama
+      volumes:
+        - name: ollama-data
+          {{- if .Values.ollama.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.ollama.name }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- end }}
+{{- if .Values.moodle.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.moodle.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.moodle.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.moodle.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.moodle.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.moodle.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.moodle.name }}
+          image: "{{ .Values.moodle.image.repository }}:{{ .Values.moodle.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.moodle.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.moodle.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.mariadb.enabled }}
+            {{- include "onlysaid.mariadbEnvVars" . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.moodle.resources | nindent 12 }}
+          volumeMounts:
+            - name: moodle-data
+              mountPath: /bitnami/moodle
+            - name: moodledata-data
+              mountPath: /bitnami/moodledata
+      volumes:
+        - name: moodle-data
+          {{- if .Values.moodle.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.moodle.name }}-data
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: moodledata-data
+          {{- if .Values.moodle.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.moodle.name }}-data-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+---
+{{- end }}
+{{- if .Values.n8n.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.n8n.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.n8n.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.n8n.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.n8n.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.n8n.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.n8n.name }}
+          image: "{{ .Values.n8n.image.repository }}:{{ .Values.n8n.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.n8n.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.n8n.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.postgresql.enabled }}
+            {{- include "onlysaid.n8nDbEnvVars" . | nindent 12 }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.n8n.resources | nindent 12 }}
+          volumeMounts:
+            - name: n8n-storage
+              mountPath: /home/node/.n8n
+            - name: local-files
+              mountPath: /files
+      volumes:
+        - name: n8n-storage
+          {{- if .Values.n8n.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.n8n.name }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+        - name: local-files
+          emptyDir: {}
+---
+{{- end }}
+{{- if .Values.docs.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.docs.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.docs.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.docs.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.docs.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.docs.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.docs.name }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.docs.image.repository }}:{{ .Values.docs.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.docs.service.targetPort }}
+              protocol: TCP
+          resources:
+            {{- toYaml .Values.docs.resources | nindent 12 }}
+---
+{{- end }}
+{{- if .Values.pgadmin.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.pgadmin.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.pgadmin.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.pgadmin.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.pgadmin.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.pgadmin.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.pgadmin.name }}
+          image: "{{ .Values.pgadmin.image.repository }}:{{ .Values.pgadmin.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.pgadmin.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.pgadmin.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+          resources:
+            {{- toYaml .Values.pgadmin.resources | nindent 12 }}
+          volumeMounts:
+            - name: pgadmin-storage
+              mountPath: /var/lib/pgadmin
+      volumes:
+        - name: pgadmin-storage
+          {{- if .Values.pgadmin.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.pgadmin.name }}-storage
+          {{- else }}
+          emptyDir: {}
+          {{- end }}
+{{- end }} 

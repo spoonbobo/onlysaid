@@ -1,0 +1,480 @@
+# Global configuration
+global:
+  imageRegistry: "1bucket.oneas1a.com:8080/oa-onlysaid-app-docker-dev-local"
+  imagePullSecrets: []
+  storageClass: ""
+
+# Image configuration
+image:
+  registry: "1bucket.oneas1a.com:8080/oa-onlysaid-app-docker-dev-local"
+  pullPolicy: IfNotPresent
+  tag: "dev-latest"
+
+# Environment
+environment: development
+namespace: onlysaid-dev
+
+# === MAIN APPLICATION SERVICES ===
+
+# Next.js Application
+app:
+  enabled: true
+  name: onlysaid-app
+  replicaCount: 2
+  image:
+    repository: onlysaid-app
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 3000
+    targetPort: 3000
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+    requests:
+      cpu: 500m
+      memory: 512Mi
+  env:
+    NEXT_PUBLIC_VERSION: "1.0.0"
+    NODE_ENV: production
+    NEXT_AUTH_URL: "https://onlysaid-dev.com"
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# Socket Server
+socketServer:
+  enabled: true
+  name: onlysaid-socket-server
+  replicaCount: 2
+  image:
+    repository: onlysaid-socket
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 3001
+    targetPort: 3001
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    NODE_ENV: production
+
+# Knowledge Base Service
+knowledgeBase:
+  enabled: true
+  name: onlysaid-kb
+  replicaCount: 1
+  image:
+    repository: onlysaid-kb
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 35430
+    targetPort: 35430
+  resources:
+    limits:
+      cpu: 2000m
+      memory: 2Gi
+    requests:
+      cpu: 1000m
+      memory: 1Gi
+  env:
+    EMBED_MODEL: "nomic-embed-text:latest"
+    OLLAMA_MODEL: "gemma3:4b"
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# === AI/ML SERVICES (GPU Required) ===
+
+# Speech-to-Text Service
+stt:
+  enabled: true
+  name: onlysaid-stt
+  replicaCount: 1
+  image:
+    repository: onlysaid-stt
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 34430
+    targetPort: 34430
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 4Gi
+      nvidia.com/gpu: 1
+    requests:
+      cpu: 2000m
+      memory: 2Gi
+      nvidia.com/gpu: 1
+  nodeSelector:
+    accelerator: nvidia-tesla-gpu
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  env:
+    NVIDIA_VISIBLE_DEVICES: "all"
+    PYTHONUNBUFFERED: "1"
+    PULSE_RUNTIME_PATH: "/run/user/1000/pulse"
+  persistence:
+    enabled: true
+    size: 50Gi  # For whisper cache
+  securityContext:
+    privileged: true  # For audio device access
+
+# Ollama LLM Service
+ollama:
+  enabled: true
+  name: onlysaid-ollama
+  replicaCount: 1
+  image:
+    repository: ollama/ollama
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 11434
+    targetPort: 11434
+  resources:
+    limits:
+      cpu: 4000m
+      memory: 8Gi
+      nvidia.com/gpu: 1
+    requests:
+      cpu: 2000m
+      memory: 4Gi
+      nvidia.com/gpu: 1
+  nodeSelector:
+    accelerator: nvidia-tesla-gpu
+  tolerations:
+    - key: nvidia.com/gpu
+      operator: Exists
+      effect: NoSchedule
+  env:
+    NVIDIA_VISIBLE_DEVICES: "all"
+  persistence:
+    enabled: true
+    size: 100Gi
+
+# === VECTOR DATABASE ===
+
+# Qdrant Vector Database
+qdrant:
+  enabled: true
+  name: onlysaid-qdrant
+  replicaCount: 1
+  image:
+    repository: qdrant/qdrant
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 6333
+    targetPort: 6333
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  persistence:
+    enabled: true
+    size: 50Gi
+
+# === LEARNING MANAGEMENT SYSTEM ===
+
+# Moodle LMS
+moodle:
+  enabled: true
+  name: onlysaid-moodle
+  replicaCount: 1
+  image:
+    repository: bitnami/moodle
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 8080
+    targetPort: 8080
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  env:
+    MOODLE_USERNAME: admin
+    MOODLE_PASSWORD: admin123
+    MOODLE_EMAIL: admin@example.com
+    MOODLE_SITE_NAME: "OnlySaid Moodle"
+    MOODLE_ENABLE_WEB_SERVICES: "yes"
+    MOODLE_WEB_SERVICES_PROTOCOLS: rest
+    MOODLE_HOST: moodle.onlysaid-dev.com
+    MOODLE_REVERSEPROXY_SSL: "no"
+    MOODLE_SSLPROXY: "no"
+  persistence:
+    enabled: true
+    size: 20Gi
+
+# === WORKFLOW AUTOMATION ===
+
+# N8N Workflow Automation
+n8n:
+  enabled: true
+  name: onlysaid-n8n
+  replicaCount: 1
+  image:
+    repository: docker.n8n.io/n8nio/n8n
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 5678
+    targetPort: 5678
+  resources:
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+    requests:
+      cpu: 500m
+      memory: 1Gi
+  env:
+    DB_TYPE: postgresdb
+    N8N_HOST: n8n.onlysaid-dev.com
+    N8N_PORT: "5678"
+    N8N_PROTOCOL: http
+    NODE_ENV: production
+    WEBHOOK_URL: "http://n8n.onlysaid-dev.com/"
+    N8N_DISABLE_PRODUCTION_MAIN_PROCESS: "true"
+    NODE_OPTIONS: "--max-old-space-size=4096"
+    N8N_SECURE_COOKIE: "false"
+  persistence:
+    enabled: true
+    size: 10Gi
+
+# === SUPPORTING SERVICES ===
+
+# Documentation Service
+docs:
+  enabled: true
+  name: onlysaid-docs
+  replicaCount: 1
+  image:
+    repository: onlysaid-docs
+    tag: ""
+  service:
+    type: ClusterIP
+    port: 43000
+    targetPort: 43000
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+# PgAdmin
+pgadmin:
+  enabled: true
+  name: onlysaid-pgadmin
+  replicaCount: 1
+  image:
+    repository: dpage/pgadmin4
+    tag: latest
+  service:
+    type: ClusterIP
+    port: 80
+    targetPort: 80
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  env:
+    PGADMIN_DEFAULT_EMAIL: admin@admin.com
+    PGADMIN_DEFAULT_PASSWORD: admin
+  persistence:
+    enabled: true
+    size: 5Gi
+
+# === DATABASE CONFIGURATIONS ===
+
+# PostgreSQL (using Bitnami chart)
+postgresql:
+  enabled: true
+  auth:
+    postgresPassword: "your-postgres-password"
+    username: "onlysaid"
+    password: "onlysaid-password"
+    database: "onlysaid"
+  primary:
+    persistence:
+      enabled: true
+      size: 50Gi
+    resources:
+      limits:
+        cpu: 1000m
+        memory: 2Gi
+      requests:
+        cpu: 500m
+        memory: 1Gi
+    initdb:
+      scripts:
+        init.sql: |
+          -- Database initialization scripts
+          CREATE DATABASE IF NOT EXISTS n8n_db;
+
+# Redis Cluster (using Bitnami chart)
+redis:
+  enabled: true
+  auth:
+    enabled: true
+    password: "bitnami"
+  cluster:
+    enabled: true
+    nodes: 6
+    replicas: 1
+  master:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# MariaDB for Moodle (using Bitnami chart)
+mariadb:
+  enabled: true
+  auth:
+    rootPassword: "bitnami123"
+    username: "bn_moodle"
+    password: "bitnami"
+    database: "bitnami_moodle"
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+    resources:
+      limits:
+        cpu: 500m
+        memory: 1Gi
+      requests:
+        cpu: 250m
+        memory: 512Mi
+
+# === NETWORKING ===
+
+# Ingress configuration
+ingress:
+  enabled: true
+  className: "nginx"
+  annotations:
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    # WebSocket support for socket.io
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+  hosts:
+    - host: onlysaid-dev.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: onlysaid-app
+          port: 3000
+        - path: /socket.io
+          pathType: Prefix
+          service: onlysaid-socket-server
+          port: 3001
+        - path: /api/kb
+          pathType: Prefix
+          service: onlysaid-kb
+          port: 35430
+        - path: /api/stt
+          pathType: Prefix
+          service: onlysaid-stt
+          port: 34430
+        - path: /docs
+          pathType: Prefix
+          service: onlysaid-docs
+          port: 43000
+    - host: moodle.onlysaid-dev.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: onlysaid-moodle
+          port: 8080
+    - host: n8n.onlysaid-dev.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: onlysaid-n8n
+          port: 5678
+    - host: pgadmin.onlysaid-dev.com
+      paths:
+        - path: /
+          pathType: Prefix
+          service: onlysaid-pgadmin
+          port: 80
+
+# === STORAGE ===
+
+# Storage configuration
+persistence:
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+# === SECURITY ===
+
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+podSecurityContext:
+  fsGroup: 2000
+
+securityContext:
+  capabilities:
+    drop:
+    - ALL
+  readOnlyRootFilesystem: false
+  runAsNonRoot: true
+  runAsUser: 1000
+
+# === SCALING & MONITORING ===
+
+# Autoscaling
+autoscaling:
+  enabled: false
+  minReplicas: 1
+  maxReplicas: 10
+  targetCPUUtilizationPercentage: 80
+  targetMemoryUtilizationPercentage: 80
+
+# Node selection
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Monitoring
+monitoring:
+  enabled: false
+  serviceMonitor:
+    enabled: false 

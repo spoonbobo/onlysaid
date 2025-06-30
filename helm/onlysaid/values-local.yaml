@@ -1,0 +1,139 @@
+# Override for local testing with k3d/minikube
+# Use this file for local development and testing
+
+global:
+  imageRegistry: "docker.io"
+
+image:
+  tag: "latest"
+
+environment: local
+namespace: default
+
+# Use simple images for local testing
+app:
+  replicaCount: 1
+  image:
+    repository: nginx  # Use nginx for initial testing
+    tag: latest
+  service:
+    targetPort: 80
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  persistence:
+    enabled: false
+
+socketServer:
+  replicaCount: 1
+  image:
+    repository: nginx
+    tag: latest
+  service:
+    targetPort: 80
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+
+knowledgeBase:
+  replicaCount: 1
+  resources:
+    limits:
+      cpu: 500m
+      memory: 512Mi
+    requests:
+      cpu: 250m
+      memory: 256Mi
+  persistence:
+    enabled: false
+
+# Disable GPU services for local testing
+stt:
+  enabled: false
+ollama:
+  enabled: false
+
+# Disable heavy services for local testing
+moodle:
+  enabled: false
+n8n:
+  enabled: false
+
+# Disable persistence for local testing
+postgresql:
+  primary:
+    persistence:
+      enabled: false
+    resources:
+      limits:
+        cpu: 500m
+        memory: 512Mi
+      requests:
+        cpu: 250m
+        memory: 256Mi
+
+redis:
+  cluster:
+    enabled: false  # Use single Redis for local
+  master:
+    persistence:
+      enabled: false
+    resources:
+      limits:
+        cpu: 200m
+        memory: 256Mi
+      requests:
+        cpu: 100m
+        memory: 128Mi
+
+mariadb:
+  enabled: false  # Disable MariaDB for local testing
+
+qdrant:
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  persistence:
+    enabled: false
+
+pgadmin:
+  resources:
+    limits:
+      cpu: 200m
+      memory: 256Mi
+    requests:
+      cpu: 100m
+      memory: 128Mi
+  persistence:
+    enabled: false
+
+docs:
+  image:
+    repository: nginx
+    tag: latest
+
+# Simple ingress for local
+ingress:
+  hosts:
+    - host: onlysaid.local
+      paths:
+        - path: /
+          pathType: Prefix
+          service: onlysaid-app
+          port: 3000
+        - path: /socket
+          pathType: Prefix
+          service: onlysaid-socket-server
+          port: 3001 

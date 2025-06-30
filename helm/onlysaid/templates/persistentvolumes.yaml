@@ -1,0 +1,195 @@
+{{- if and .Values.app.enabled .Values.app.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.app.name }}-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.app.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.knowledgeBase.enabled .Values.knowledgeBase.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.knowledgeBase.name }}-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.knowledgeBase.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.knowledgeBase.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.qdrant.enabled .Values.qdrant.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.qdrant.name }}-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.qdrant.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.qdrant.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.stt.enabled .Values.stt.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.stt.name }}-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.stt.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.stt.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.stt.name }}-whisper-cache
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.stt.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: 20Gi
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.ollama.enabled .Values.ollama.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.ollama.name }}-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.ollama.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.ollama.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.moodle.enabled .Values.moodle.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.moodle.name }}-data
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.moodle.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.moodle.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.moodle.name }}-data-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.moodle.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.moodle.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.n8n.enabled .Values.n8n.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.n8n.name }}-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.n8n.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.n8n.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+---
+{{- end }}
+{{- if and .Values.pgadmin.enabled .Values.pgadmin.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ .Values.pgadmin.name }}-storage
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.pgadmin.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  accessModes:
+    - {{ .Values.persistence.accessMode }}
+  resources:
+    requests:
+      storage: {{ .Values.pgadmin.persistence.size }}
+  {{- if .Values.persistence.storageClass }}
+  storageClassName: {{ .Values.persistence.storageClass }}
+  {{- end }}
+{{- end }} 

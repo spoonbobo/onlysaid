@@ -1,0 +1,209 @@
+{{- if .Values.app.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.app.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.app.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.app.service.type }}
+  ports:
+    - port: {{ .Values.app.service.port }}
+      targetPort: {{ .Values.app.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.app.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.socketServer.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.socketServer.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.socketServer.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.socketServer.service.type }}
+  ports:
+    - port: {{ .Values.socketServer.service.port }}
+      targetPort: {{ .Values.socketServer.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.socketServer.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.knowledgeBase.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.knowledgeBase.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.knowledgeBase.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.knowledgeBase.service.type }}
+  ports:
+    - port: {{ .Values.knowledgeBase.service.port }}
+      targetPort: {{ .Values.knowledgeBase.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.knowledgeBase.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.qdrant.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.qdrant.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.qdrant.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.qdrant.service.type }}
+  ports:
+    - port: {{ .Values.qdrant.service.port }}
+      targetPort: {{ .Values.qdrant.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.qdrant.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.stt.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.stt.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.stt.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.stt.service.type }}
+  ports:
+    - port: {{ .Values.stt.service.port }}
+      targetPort: {{ .Values.stt.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.stt.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.ollama.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.ollama.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.ollama.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.ollama.service.type }}
+  ports:
+    - port: {{ .Values.ollama.service.port }}
+      targetPort: {{ .Values.ollama.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.ollama.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.moodle.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.moodle.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.moodle.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.moodle.service.type }}
+  ports:
+    - port: {{ .Values.moodle.service.port }}
+      targetPort: {{ .Values.moodle.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.moodle.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.n8n.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.n8n.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.n8n.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.n8n.service.type }}
+  ports:
+    - port: {{ .Values.n8n.service.port }}
+      targetPort: {{ .Values.n8n.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.n8n.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.docs.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.docs.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.docs.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.docs.service.type }}
+  ports:
+    - port: {{ .Values.docs.service.port }}
+      targetPort: {{ .Values.docs.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.docs.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+---
+{{- end }}
+{{- if .Values.pgadmin.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Values.pgadmin.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.pgadmin.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.pgadmin.service.type }}
+  ports:
+    - port: {{ .Values.pgadmin.service.port }}
+      targetPort: {{ .Values.pgadmin.service.targetPort }}
+      protocol: TCP
+      name: http
+  selector:
+    app: {{ .Values.pgadmin.name }}
+    {{- include "onlysaid.selectorLabels" . | nindent 4 }}
+{{- end }} 

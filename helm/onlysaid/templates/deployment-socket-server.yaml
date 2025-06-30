@@ -1,0 +1,72 @@
+{{- if .Values.socketServer.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.socketServer.name }}
+  namespace: {{ .Values.namespace }}
+  labels:
+    app: {{ .Values.socketServer.name }}
+    {{- include "onlysaid.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.socketServer.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Values.socketServer.name }}
+      {{- include "onlysaid.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.socketServer.name }}
+        {{- include "onlysaid.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.global.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "onlysaid.serviceAccountName" . }}
+      containers:
+        - name: {{ .Values.socketServer.name }}
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.socketServer.image.repository }}:{{ .Values.socketServer.image.tag | default .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.socketServer.service.targetPort }}
+              protocol: TCP
+          env:
+            {{- range $key, $value := .Values.socketServer.env }}
+            - name: {{ $key }}
+              value: {{ $value | quote }}
+            {{- end }}
+            {{- if .Values.redis.enabled }}
+            - name: REDIS_HOST
+              value: "{{ .Release.Name }}-redis-master"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-redis
+                  key: redis-password
+            {{- end }}
+            {{- if .Values.postgresql.enabled }}
+            {{- include "onlysaid.dbEnvVars" . | nindent 12 }}
+            {{- end }}
+            - name: CLIENT_URL
+              value: "https://{{ (index .Values.ingress.hosts 0).host }}"
+          {{- if ne .Values.socketServer.image.repository "nginx" }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          {{- end }}
+          resources:
+            {{- toYaml .Values.socketServer.resources | nindent 12 }}
+{{- end }} 

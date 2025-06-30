@@ -1,0 +1,36 @@
+apiVersion: v2
+name: onlysaid
+description: OnlySaid AI-powered application platform with chat, knowledge base, and LLM services
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+dependencies:
+  # Database dependencies from Bitnami
+  - name: postgresql
+    version: "15.5.17"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: postgresql.enabled
+  - name: redis
+    version: "19.6.4"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: redis.enabled
+  - name: mariadb
+    version: "18.2.3"
+    repository: "https://charts.bitnami.com/bitnami"
+    condition: mariadb.enabled
+
+keywords:
+  - onlysaid
+  - ai
+  - chat
+  - knowledge-base
+  - llm
+  - electron
+  - nextjs
+home: https://onlysaid.com
+sources:
+  - https://github.com/your-org/onlysaid
+maintainers:
+  - name: OnlySaid Team
+    email: dev@onlysaid.com 
