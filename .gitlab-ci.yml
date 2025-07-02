@@ -30,6 +30,7 @@ default:
   # Use self-hosted runner with onlysaid-runner tag
   tags:
     - onlysaid-runner
+    - shared
   
   # Retry configuration
   retry:
