@@ -86,7 +86,7 @@ cache:
     echo "npm version:"
     npm --version
     echo "JFrog CLI version:"
-    jfrog --version
+    jfrog --version || echo "JFrog CLI not installed"
     echo "Git version:"
     git --version
     echo "✅ Environment verification completed"
@@ -353,8 +353,6 @@ package:electron:
 build:docker-images:
   stage: build
   needs: ["build:nextjs"]
-  services:
-    - docker:dind
   before_script:
     - *load_secrets
     - docker info
@@ -394,50 +392,14 @@ build:docker-images:
 publish:docker-images:
   stage: publish
   needs: ["build:docker-images"]
-  services:
-    - docker:dind
   before_script:
     - *load_secrets
   script:
     - |
       echo "🚀 Uploading Docker images to JFrog..."
       
-      # Configure Docker for HTTP registry (port 8080)
-      echo "🔧 Configuring Docker for HTTP registry..."
-      mkdir -p /etc/docker
-      
-      # Backup existing daemon.json if it exists
-      if [ -f /etc/docker/daemon.json ]; then
-        cp /etc/docker/daemon.json /etc/docker/daemon.json.backup
-        echo "📋 Existing Docker daemon configuration backed up"
-      fi
-      
-      # Create daemon.json for insecure registry (HTTP)
-      cat > /etc/docker/daemon.json << EOF
-      {
-        "insecure-registries": ["$DOCKER_REGISTRY_HOST"],
-        "registry-mirrors": [],
-        "debug": false
-      }
-      EOF
-      
-      echo "📋 Docker daemon configuration:"
-      cat /etc/docker/daemon.json
-      
-      # Validate JSON syntax before restarting
-      echo "🔍 Validating Docker daemon configuration..."
-      if ! cat /etc/docker/daemon.json | jq . > /dev/null 2>&1; then
-        echo "❌ Invalid JSON in daemon.json, reverting to backup"
-        if [ -f /etc/docker/daemon.json.backup ]; then
-          mv /etc/docker/daemon.json.backup /etc/docker/daemon.json
-        else
-          rm -f /etc/docker/daemon.json
-        fi
-        exit 1
-      fi
-      
-      # In GitLab CI with docker:dind, we don't restart the daemon
-      echo "ℹ️ Using docker:dind service, daemon configuration applied"
+      # No need to configure Docker daemon for insecure registries
+      # since we're using the host's Docker directly
       
       # Load Docker images from tar files
       echo "📦 Loading Docker images..."
@@ -448,7 +410,6 @@ publish:docker-images:
       
       # Docker login with retry logic
       echo "🔐 Authenticating with JFrog Docker registry..."
-      echo "Login command: docker login $DOCKER_REGISTRY_HOST -u $JFROG_USER"
       
       LOGIN_ATTEMPTS=0
       MAX_LOGIN_ATTEMPTS=3

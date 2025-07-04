@@ -1,0 +1,18 @@
+[[runners]]
+  name = "onlysaid-a30"
+  url = "https://gitlab.onlysaid.com"
+  id = 5
+  token = "glrt-wwI9kvZqI_WUpWWm83pCgm86MQpwOjEKdDozCnU6MQ8.01.170obrs5m"
+  token_obtained_at = 2025-07-02T10:17:28Z
+  token_expires_at = 0001-01-01T00:00:00Z
+  executor = "shell"
+  shell = "bash"
+  builds_dir = "/home/gitlab-runner/builds"
+  cache_dir = "/home/gitlab-runner/cache"
+  [runners.custom_build_dir]
+    enabled = true
+  [runners.cache]
+    MaxUploadedArchiveSize = 0
+    [runners.cache.s3]
+    [runners.cache.gcs]
+    [runners.cache.azure] 
