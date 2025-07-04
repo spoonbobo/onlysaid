@@ -30,9 +30,15 @@ stages:
 
 # Default settings
 default:
-  # Use self-hosted runner with shell executor
+  # Use Node.js image instead of ubuntu:22.04
+  image: node:18-bullseye
   tags:
     - onlysaid-runner
+  
+  # Install additional tools needed across jobs
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq curl wget jq git
   
   # Retry configuration
   retry:
