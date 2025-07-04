@@ -71,25 +71,37 @@ cache:
     echo "JFrog User: ${JFROG_USER}"
     echo "GitLab User: ${GITLAB_USER}"
 
+# For regular jobs (no Docker needed)
 .verify_environment: &verify_environment
   - |
-    echo "🔍 Verifying self-hosted runner environment..."
-    echo "Runner OS: $(uname -a)"
+    echo "🔍 Verifying environment..."
+    echo "Container OS: $(cat /etc/os-release | grep PRETTY_NAME)"
+    echo "Current user: $(whoami)"
+    echo "Working directory: $(pwd)"
+    echo "Available disk space:"
+    df -h
+    echo "Node.js version:"
+    node --version
+    echo "npm version:"
+    npm --version
+    echo "Git version:"
+    git --version
+    echo "✅ Environment verification completed"
+
+# For Docker jobs (Docker commands available)
+.verify_docker_environment: &verify_docker_environment
+  - |
+    echo "🔍 Verifying Docker environment..."
+    echo "Container OS: $(cat /etc/os-release | grep PRETTY_NAME)"
     echo "Current user: $(whoami)"
     echo "Working directory: $(pwd)"
     echo "Available disk space:"
     df -h
     echo "Docker version:"
     docker --version
-    echo "Node.js version:"
-    node --version
-    echo "npm version:"
-    npm --version
-    echo "JFrog CLI version:"
-    jfrog --version || echo "JFrog CLI not installed"
-    echo "Git version:"
-    git --version
-    echo "✅ Environment verification completed"
+    echo "Docker info:"
+    docker info
+    echo "✅ Docker environment verification completed"
 
 .test_connectivity: &test_connectivity
   - |
@@ -353,9 +365,13 @@ package:electron:
 build:docker-images:
   stage: build
   needs: ["build:nextjs"]
+  image: docker:latest
+  services:
+    - docker:dind
   before_script:
+    - apk add --no-cache curl bash jq
     - *load_secrets
-    - docker info
+    - *verify_docker_environment
   script:
     - |
       echo "Building Docker images..."
