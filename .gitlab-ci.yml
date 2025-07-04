@@ -1,5 +1,5 @@
 # OnlySaid GitLab CI/CD Pipeline
-# Adapted from GitHub Actions workflow
+# Hybrid approach: GitLab Container Registry + JFrog for large artifacts
 
 # Global variables
 variables:
@@ -7,8 +7,12 @@ variables:
   BUILD_VERSION: $CI_COMMIT_SHA
   BUILD_NUMBER: $CI_PIPELINE_IID
   
-  # Docker registry configuration (HTTP port 8080)
-  DOCKER_REGISTRY_HOST: "1bucket.oneas1a.com:8080"
+  # Use GitLab Container Registry for Docker images
+  DOCKER_REGISTRY: $CI_REGISTRY
+  DOCKER_IMAGE_PREFIX: $CI_REGISTRY_IMAGE
+  
+  # JFrog for Electron installers only
+  JFROG_HTTP_URL: "http://1bucket.oneas1a.com:8080"
   ELECTRON_REGISTRY: "oa-onlysaid-electron-dev-local"
   
   # Pipeline settings
@@ -66,17 +70,11 @@ cache:
 .load_secrets: &load_secrets
   - |
     echo "🔧 Using GitLab CI/CD variables..."
-    
-    # Configure Docker registry URLs
-    export DOCKER_REGISTRY="${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
-    
     echo "✅ Configuration loaded successfully"
-    echo "JFrog Web URL: ${JFROG_URL}"
-    echo "Docker Registry Host: ${DOCKER_REGISTRY_HOST}"
-    echo "Docker Registry: ${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
-    echo "JFrog User: ${JFROG_USER}"
+    echo "Docker Registry: ${DOCKER_REGISTRY}"
+    echo "JFrog HTTP URL: ${JFROG_HTTP_URL}"
+    echo "Electron Registry: ${ELECTRON_REGISTRY}"
 
-# For regular jobs (no Docker needed)
 .verify_environment: &verify_environment
   - |
     echo "🔍 Verifying environment..."
@@ -93,7 +91,6 @@ cache:
     git --version
     echo "✅ Environment verification completed"
 
-# For Docker jobs (Docker commands available)
 .verify_docker_environment: &verify_docker_environment
   - |
     echo "🔍 Verifying Docker environment..."
@@ -108,75 +105,29 @@ cache:
     docker info
     echo "✅ Docker environment verification completed"
 
-.test_connectivity: &test_connectivity
-  - |
-    echo "🔗 Testing JFrog connectivity..."
-    
-    # Test JFrog web interface connectivity (HTTPS for web API)
-    WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
-    echo "Testing JFrog web interface: ${WEB_URL}"
-    
-    RETRY_COUNT=0
-    MAX_RETRIES=3
-    
-    while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-      if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
-        echo "✅ JFrog web interface is accessible (attempt $((RETRY_COUNT + 1)))"
-        break
-      else
-        RETRY_COUNT=$((RETRY_COUNT + 1))
-        if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-          echo "⚠️ JFrog web interface connectivity failed, retrying in 5 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-          sleep 5
-        else
-          echo "❌ Cannot reach JFrog web interface after $MAX_RETRIES attempts"
-          echo "JFrog URL: ${JFROG_URL}"
-          exit 1
-        fi
-      fi
-    done
-    
-    echo "✅ JFrog web interface connectivity verified"
-
 # Jobs
 setup:verify-environment:
   stage: setup
   script:
     - *load_secrets
     - *verify_environment
-    - *test_connectivity
     - |
-      echo "🔗 Testing Docker registry connectivity early..."
-      echo "Since publish-docker-artifacts.yml succeeds, this should also work"
+      echo "🔗 Testing GitLab Container Registry connectivity..."
+      echo "GitLab Registry: ${CI_REGISTRY}"
+      echo "✅ GitLab Container Registry will be used for Docker images"
       
-      # Test Docker registry v2 API (HTTP on port 8080) WITH AUTHENTICATION
-      DOCKER_V2_URL="http://$DOCKER_REGISTRY_HOST/v2/"
-      echo "Testing Docker v2 API: $DOCKER_V2_URL"
+      echo "🔗 Testing JFrog connectivity for Electron installers..."
+      WEB_URL="${JFROG_URL%/}/artifactory/api/system/ping"
+      echo "Testing JFrog web interface: ${WEB_URL}"
       
-      RETRY_COUNT=0
-      MAX_RETRIES=5
-      
-      while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-        # Use authentication like the working test workflow does
-        if curl -f -s -k -u "$JFROG_USER:$JFROG_USER_PASSWORD" --connect-timeout 15 --max-time 45 "$DOCKER_V2_URL" > /dev/null; then
-          echo "✅ Docker registry is accessible with authentication (attempt $((RETRY_COUNT + 1)))"
-          break
-        else
-          RETRY_COUNT=$((RETRY_COUNT + 1))
-          if [ $RETRY_COUNT -lt $MAX_RETRIES ]; then
-            echo "⚠️ Docker registry connectivity failed, retrying in 10 seconds... (attempt $RETRY_COUNT/$MAX_RETRIES)"
-            sleep 10
-          else
-            echo "❌ Cannot reach Docker registry after $MAX_RETRIES attempts"
-            echo "Docker Registry: $DOCKER_REGISTRY_HOST"
-            echo "This should work since publish-docker-artifacts.yml succeeds"
-            exit 1
-          fi
-        fi
-      done
-      
-      echo "✅ Early Docker registry connectivity test completed successfully"
-  timeout: 10 minutes
+      if curl -f -s -k --connect-timeout 10 --max-time 30 "${WEB_URL}" > /dev/null; then
+        echo "✅ JFrog web interface is accessible"
+      else
+        echo "❌ Cannot reach JFrog web interface"
+        echo "JFrog URL: ${JFROG_URL}"
+        exit 1
+      fi
+  timeout: 5 minutes
 
 install:nextjs-dependencies:
   stage: setup
@@ -185,8 +136,6 @@ install:nextjs-dependencies:
     - *load_secrets
     - |
       echo "Installing Next.js dependencies..."
-      
-      # Set npm configuration for better reliability
       npm config set fetch-timeout 60000
       npm config set fetch-retry-mintimeout 10000
       npm config set fetch-retry-maxtimeout 60000
@@ -210,7 +159,6 @@ install:electron-dependencies:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq curl wget jq git
-    # Manually checkout submodules
     - git submodule update --init --recursive
   script:
     - *load_secrets
@@ -218,16 +166,11 @@ install:electron-dependencies:
       cd onlysaid-electron
       
       echo "Installing Electron dependencies..."
-      
-      # Set npm configuration for Electron
       npm config set fetch-timeout 60000
       npm config set fetch-retry-mintimeout 10000
       npm config set fetch-retry-maxtimeout 60000
       npm config set fetch-retries 3
       
-      echo "Using public npm registry for Electron dependencies..."
-      
-      # Test connectivity
       echo "Testing npm registry connectivity for Electron..."
       timeout 30s npm ping
       
@@ -267,7 +210,6 @@ test:nextjs:
     - *load_secrets
     - |
       echo "Running Next.js tests..."
-      # Uncomment when tests are available
       # npm test
       echo "✅ Next.js tests completed (no tests configured yet)"
   cache:
@@ -306,13 +248,13 @@ build:nextjs:
         - node_modules/
       policy: pull
 
-package:electron:
+# Modified: Build and immediately publish Electron to JFrog (no GitLab artifacts)
+package-and-publish:electron:
   stage: package
   needs: ["test:electron"]
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq curl wget jq git
-    # Manually checkout submodules
     - git submodule update --init --recursive
   script:
     - *load_secrets
@@ -332,15 +274,15 @@ package:electron:
       echo "Current working directory: $(pwd)"
       echo "Directory contents:"
       ls -la
+      
       echo "Checking if package.json exists:"
       if [ -f "package.json" ]; then
         echo "✅ package.json found"
-        echo "Available npm scripts:"
-        npm run
       else
         echo "❌ package.json not found"
         exit 1
       fi
+      
       echo "Checking node_modules:"
       if [ -d "node_modules" ]; then
         echo "✅ node_modules directory exists"
@@ -349,185 +291,18 @@ package:electron:
         echo "Re-running npm install..."
         npm install
       fi
+      
+      echo "Building Electron application..."
       npm run package
       echo "✅ Electron build completed successfully"
-  variables:
-    KB_BASE_URL: ${KB_BASE_URL:-"https://onlysaid.com/api/kb"}
-    MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-"4b24891c-a62b-4da5-9fd1-fc6e1b912297"}
-    ONLYSAID_API_URL: ${ONLYSAID_API_URL:-"https://onlysaid.com/api/v2"}
-    ONLYSAID_DOMAIN: ${ONLYSAID_DOMAIN:-"https://onlysaid.com"}
-    SOCKET_SERVER_URL: ${SOCKET_SERVER_URL:-"https://onlysaid.com/"}
-    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-"879402396826-sfq4ukdf1luhh5o0ub0am7gnljce2ss5.apps.googleusercontent.com"}
-    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-""}
-  artifacts:
-    name: "electron-installers-$BUILD_VERSION"
-    paths:
-      - onlysaid-electron/release/build/
-    expire_in: 7 days
-  cache:
-    - key:
-        files:
-          - onlysaid-electron/package-lock.json
-      paths:
-        - onlysaid-electron/node_modules/
-      policy: pull
-
-build:docker-images:
-  stage: build
-  needs: ["build:nextjs"]
-  image: docker:latest
-  services:
-    - docker:dind
-  before_script:
-    - apk add --no-cache curl bash jq
-    - *load_secrets
-    - *verify_docker_environment
-  script:
+      
+      echo "Listing built files:"
+      ls -la release/build/
     - |
-      echo "Building Docker images..."
+      echo "📤 Uploading Electron installers directly to JFrog..."
       
-      # Build Next.js Docker Image
-      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-$BUILD_VERSION" \
-        -f ./docker/Dockerfile.next .
+      cd release/build
       
-      # Build Socket Server Docker Image
-      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-socket:dev-$BUILD_VERSION" \
-        -f ./socket_server/Dockerfile.socket_server ./socket_server/
-      
-      # Build Knowledge Base Docker Image
-      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-kb:dev-$BUILD_VERSION" \
-        -f ./docker/Dockerfile.kb .
-      
-      # Build Documentation Docker Image
-      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-docs:dev-$BUILD_VERSION" \
-        -f ./docker/Dockerfile.docs .
-      
-      # Save images as tar files for artifacts
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-$BUILD_VERSION" > onlysaid-app.tar
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-socket:dev-$BUILD_VERSION" > onlysaid-socket.tar
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-kb:dev-$BUILD_VERSION" > onlysaid-kb.tar
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-docs:dev-$BUILD_VERSION" > onlysaid-docs.tar
-      
-      echo "✅ All Docker images built successfully"
-  artifacts:
-    name: "docker-images-$BUILD_VERSION"
-    paths:
-      - "*.tar"
-    expire_in: 7 days
-
-publish:docker-images:
-  stage: publish
-  needs: ["build:docker-images"]
-  before_script:
-    - *load_secrets
-  script:
-    - |
-      echo "🚀 Uploading Docker images to JFrog..."
-      
-      # No need to configure Docker daemon for insecure registries
-      # since we're using the host's Docker directly
-      
-      # Load Docker images from tar files
-      echo "📦 Loading Docker images..."
-      docker load < onlysaid-app.tar
-      docker load < onlysaid-socket.tar
-      docker load < onlysaid-kb.tar
-      docker load < onlysaid-docs.tar
-      
-      # Docker login with retry logic
-      echo "🔐 Authenticating with JFrog Docker registry..."
-      
-      LOGIN_ATTEMPTS=0
-      MAX_LOGIN_ATTEMPTS=3
-      
-      while [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; do
-        if echo "$JFROG_USER_PASSWORD" | docker login "$DOCKER_REGISTRY_HOST" -u "$JFROG_USER" --password-stdin; then
-          echo "✅ Successfully authenticated with JFrog Docker Registry"
-          break
-        else
-          LOGIN_ATTEMPTS=$((LOGIN_ATTEMPTS + 1))
-          if [ $LOGIN_ATTEMPTS -lt $MAX_LOGIN_ATTEMPTS ]; then
-            echo "⚠️ Login attempt $LOGIN_ATTEMPTS failed, retrying in 10 seconds..."
-            sleep 10
-          else
-            echo "❌ Failed to authenticate after $MAX_LOGIN_ATTEMPTS attempts"
-            exit 1
-          fi
-        fi
-      done
-      
-      # Function to push with retry logic
-      push_with_retry() {
-        local image_tag="$1"
-        local max_attempts=3
-        local attempt=1
-        
-        while [ $attempt -le $max_attempts ]; do
-          echo "Attempt $attempt/$max_attempts: Pushing $image_tag"
-          
-          if timeout 600 docker push "$image_tag" 2>&1 | tee /tmp/push_log_${attempt}.txt; then
-            echo "✅ Successfully pushed $image_tag on attempt $attempt"
-            return 0
-          else
-            echo "❌ Push attempt $attempt failed for $image_tag"
-            
-            if [ $attempt -lt $max_attempts ]; then
-              echo "Waiting 30 seconds before retry..."
-              sleep 30
-            fi
-            
-            attempt=$((attempt + 1))
-          fi
-        done
-        
-        echo "❌ Failed to push $image_tag after $max_attempts attempts"
-        return 1
-      }
-      
-      # Push images with error handling
-      echo "📤 Pushing Docker images..."
-      IMAGES=("onlysaid-app" "onlysaid-socket" "onlysaid-kb" "onlysaid-docs")
-      PUSHED_COUNT=0
-      FAILED_PUSHES=()
-      
-      for image in "${IMAGES[@]}"; do
-        IMAGE_TAG="$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/${image}:dev-$BUILD_VERSION"
-        echo "Pushing ${IMAGE_TAG}..."
-        
-        if push_with_retry "${IMAGE_TAG}"; then
-          echo "✅ Successfully pushed ${image}"
-          PUSHED_COUNT=$((PUSHED_COUNT + 1))
-        else
-          echo "❌ Failed to push ${image}"
-          FAILED_PUSHES+=("$image")
-        fi
-      done
-      
-      # Report results
-      echo "📊 Push Results:"
-      echo "Successfully pushed: $PUSHED_COUNT/${#IMAGES[@]}"
-      
-      if [ ${#FAILED_PUSHES[@]} -gt 0 ]; then
-        echo "Failed pushes: ${FAILED_PUSHES[*]}"
-        echo "❌ Some images failed to push"
-        exit 1
-      else
-        echo "✅ All images pushed successfully"
-      fi
-
-publish:electron-installers:
-  stage: publish
-  needs: ["package:electron"]
-  script:
-    - *load_secrets
-    - |
-      echo "Uploading Electron installers to oa-onlysaid-electron-dev-local..."
-      echo "Using HTTP (port 8080) method like Docker registry"
-      
-      cd onlysaid-electron/release/build
-      
-      # Use HTTP URL (port 8080) instead of HTTPS
-      JFROG_HTTP_URL="http://1bucket.oneas1a.com:8080"
       echo "JFrog HTTP URL: ${JFROG_HTTP_URL}"
       echo "Target registry: $ELECTRON_REGISTRY"
       echo "Build version: $BUILD_VERSION"
@@ -538,7 +313,7 @@ publish:electron-installers:
         exit 1
       fi
       
-      # Upload all built installers to electron registry using HTTP
+      # Upload all built installers to JFrog registry using HTTP
       UPLOADED_COUNT=0
       FAILED_UPLOADS=()
       
@@ -546,36 +321,22 @@ publish:electron-installers:
         if [ -f "$file" ]; then
           echo "📤 Uploading $file to $ELECTRON_REGISTRY..."
           
-          # Method 1: Try with JFrog CLI using HTTP URL and insecure flag
-          if jfrog rt u "$file" "$ELECTRON_REGISTRY/v$BUILD_VERSION/$file" \
-            --url="${JFROG_HTTP_URL}" \
-            --user="$JFROG_USER" \
-            --password="$JFROG_USER_PASSWORD" \
-            --insecure-tls=true \
-            --build-name="OnlySaid-Electron" \
-            --build-number="$BUILD_NUMBER"; then
-            echo "✅ Successfully uploaded $file with JFrog CLI"
+          # Method 1: Try with curl (most reliable)
+          TARGET_PATH="artifactory/$ELECTRON_REGISTRY/v$BUILD_VERSION/$file"
+          CURL_URL="${JFROG_HTTP_URL}/${TARGET_PATH}"
+          
+          echo "Uploading with curl to: ${CURL_URL}"
+          
+          if curl -f -u "$JFROG_USER:$JFROG_USER_PASSWORD" \
+            -T "$file" \
+            --connect-timeout 30 \
+            --max-time 300 \
+            "${CURL_URL}"; then
+            echo "✅ Successfully uploaded $file with curl"
             UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
           else
-            echo "⚠️ JFrog CLI failed, trying with curl..."
-            
-            # Method 2: Fallback to curl (like working test)
-            TARGET_PATH="artifactory/$ELECTRON_REGISTRY/v$BUILD_VERSION/$file"
-            CURL_URL="${JFROG_HTTP_URL}/${TARGET_PATH}"
-            
-            echo "Uploading with curl to: ${CURL_URL}"
-            
-            if curl -f -u "$JFROG_USER:$JFROG_USER_PASSWORD" \
-              -T "$file" \
-              --connect-timeout 30 \
-              --max-time 300 \
-              "${CURL_URL}"; then
-              echo "✅ Successfully uploaded $file with curl"
-              UPLOADED_COUNT=$((UPLOADED_COUNT + 1))
-            else
-              echo "❌ Failed to upload $file with both methods"
-              FAILED_UPLOADS+=("$file")
-            fi
+            echo "❌ Failed to upload $file"
+            FAILED_UPLOADS+=("$file")
           fi
         fi
       done
@@ -589,19 +350,84 @@ publish:electron-installers:
         echo "❌ Some Electron installers failed to upload"
         exit 1
       else
-        echo "✅ All Electron installers uploaded successfully"
+        echo "✅ All Electron installers uploaded successfully to JFrog"
       fi
+  variables:
+    KB_BASE_URL: ${KB_BASE_URL:-"https://onlysaid.com/api/kb"}
+    MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-"4b24891c-a62b-4da5-9fd1-fc6e1b912297"}
+    ONLYSAID_API_URL: ${ONLYSAID_API_URL:-"https://onlysaid.com/api/v2"}
+    ONLYSAID_DOMAIN: ${ONLYSAID_DOMAIN:-"https://onlysaid.com"}
+    SOCKET_SERVER_URL: ${SOCKET_SERVER_URL:-"https://onlysaid.com/"}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-"879402396826-sfq4ukdf1luhh5o0ub0am7gnljce2ss5.apps.googleusercontent.com"}
+    GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-""}
+  cache:
+    - key:
+        files:
+          - onlysaid-electron/package-lock.json
+      paths:
+        - onlysaid-electron/node_modules/
+      policy: pull
+  # NO ARTIFACTS - Upload directly to JFrog instead
+
+# Modified: Use GitLab Container Registry for Docker images
+build-and-publish:docker-images:
+  stage: build
+  needs: ["build:nextjs"]
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - apk add --no-cache curl bash jq
+    - *load_secrets
+    - *verify_docker_environment
+  script:
+    - |
+      echo "🔐 Authenticating with GitLab Container Registry..."
+      docker login -u $CI_REGISTRY_USER -p $CI_REGISTRY_PASSWORD $CI_REGISTRY
+      echo "✅ Successfully authenticated with GitLab Container Registry"
+    - |
+      echo "🏗️ Building and pushing Docker images to GitLab Container Registry..."
+      
+      # Build and push Next.js Docker Image
+      echo "Building Next.js Docker image..."
+      docker build -t "$DOCKER_IMAGE_PREFIX/onlysaid-app:dev-$BUILD_VERSION" \
+        -f ./docker/Dockerfile.next .
+      docker push "$DOCKER_IMAGE_PREFIX/onlysaid-app:dev-$BUILD_VERSION"
+      echo "✅ Next.js image pushed successfully"
+      
+      # Build and push Socket Server Docker Image
+      echo "Building Socket Server Docker image..."
+      docker build -t "$DOCKER_IMAGE_PREFIX/onlysaid-socket:dev-$BUILD_VERSION" \
+        -f ./socket_server/Dockerfile.socket_server ./socket_server/
+      docker push "$DOCKER_IMAGE_PREFIX/onlysaid-socket:dev-$BUILD_VERSION"
+      echo "✅ Socket Server image pushed successfully"
+      
+      # Build and push Knowledge Base Docker Image
+      echo "Building Knowledge Base Docker image..."
+      docker build -t "$DOCKER_IMAGE_PREFIX/onlysaid-kb:dev-$BUILD_VERSION" \
+        -f ./docker/Dockerfile.kb .
+      docker push "$DOCKER_IMAGE_PREFIX/onlysaid-kb:dev-$BUILD_VERSION"
+      echo "✅ Knowledge Base image pushed successfully"
+      
+      # Build and push Documentation Docker Image
+      echo "Building Documentation Docker image..."
+      docker build -t "$DOCKER_IMAGE_PREFIX/onlysaid-docs:dev-$BUILD_VERSION" \
+        -f ./docker/Dockerfile.docs .
+      docker push "$DOCKER_IMAGE_PREFIX/onlysaid-docs:dev-$BUILD_VERSION"
+      echo "✅ Documentation image pushed successfully"
+      
+      echo "🎉 All Docker images built and pushed to GitLab Container Registry successfully"
 
 deploy:generate-manifests:
   stage: deploy
-  needs: ["publish:docker-images"]
+  needs: ["build-and-publish:docker-images"]
   script:
     - *load_secrets
     - |
       echo "Generating Kubernetes deployment manifests..."
       mkdir -p k8s-manifests
       
-      # Create deployment manifest template using correct docker registry
+      # Create deployment manifest template using GitLab Container Registry
       cat > k8s-manifests/onlysaid-app-deployment.yaml << EOF
       apiVersion: apps/v1
       kind: Deployment
@@ -620,7 +446,7 @@ deploy:generate-manifests:
           spec:
             containers:
             - name: onlysaid-app
-              image: $DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-$BUILD_VERSION
+              image: $DOCKER_IMAGE_PREFIX/onlysaid-app:dev-$BUILD_VERSION
               ports:
               - containerPort: 3000
       EOF
@@ -635,8 +461,8 @@ deploy:generate-manifests:
 build-summary:
   stage: deploy
   needs: 
-    - "publish:docker-images"
-    - "publish:electron-installers" 
+    - "build-and-publish:docker-images"
+    - "package-and-publish:electron" 
     - "deploy:generate-manifests"
   script:
     - *load_secrets
@@ -645,19 +471,12 @@ build-summary:
       echo "- **Build Version:** $BUILD_VERSION"
       echo "- **Build Number:** $BUILD_NUMBER"
       echo "- **Pipeline ID:** $CI_PIPELINE_ID"
-      echo "- **Runner Type:** Self-hosted Linux"
-      echo "- **Runner Host:** $(hostname)"
-      echo "- **JFrog Web URL:** $JFROG_URL"
-      echo "- **Docker Registry Host:** $DOCKER_REGISTRY_HOST"
-      echo "- **Docker Registry:** $DOCKER_REGISTRY"
-      echo "- **JFrog Configured:** ✅"
-      echo "- **JFrog Accessible:** ✅"
-      echo "- **Docker Registry Accessible:** ✅"
-      echo "- **Docker Repository:** oa-onlysaid-app-docker-dev-local"
-      echo "- **Electron Registry:** oa-onlysaid-electron-dev-local"
-      echo "- **Docker Images Built:** ✅"
-      echo "- **Electron Build Completed:** ✅"
-      echo "- **Artifacts Published to JFrog:** ✅"
+      echo "- **Docker Registry:** GitLab Container Registry"
+      echo "- **Docker Images:** $DOCKER_IMAGE_PREFIX"
+      echo "- **Electron Registry:** JFrog ($ELECTRON_REGISTRY)"
+      echo "- **Docker Images Built & Pushed:** ✅"
+      echo "- **Electron Build & Upload Completed:** ✅"
+      echo "- **Kubernetes Manifests Generated:** ✅"
 
 # Cleanup job - always runs
 cleanup:workspace:
@@ -667,14 +486,8 @@ cleanup:workspace:
     - |
       echo "🧹 Cleaning up..."
       
-      # Clean up JFrog configuration
-      if [ -n "${JFROG_SERVER_ID}" ]; then
-        echo "Cleaning up JFrog configuration..."
-        jfrog config remove "${JFROG_SERVER_ID}" --quiet || echo "JFrog config cleanup failed"
-      fi
-      
-      # Logout from Docker registry
-      docker logout "$DOCKER_REGISTRY_HOST" || echo "Docker logout failed"
+      # Logout from GitLab Container Registry
+      docker logout "$CI_REGISTRY" || echo "Docker logout failed"
       
       # Clean up Docker images to save space
       echo "Cleaning up Docker images..."
@@ -693,11 +506,6 @@ cleanup:workspace:
       echo "Cleaning build artifacts..."
       rm -rf .next
       rm -rf onlysaid-electron/release
-      rm -rf *.tar
-      
-      # Clean up temporary files
-      echo "Cleaning temporary files..."
-      rm -rf .npmrc
       
       echo "✅ Workspace cleanup completed"
 
