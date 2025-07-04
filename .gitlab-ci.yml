@@ -359,11 +359,6 @@ package:electron:
     SOCKET_SERVER_URL: ${SOCKET_SERVER_URL:-"https://onlysaid.com/"}
     GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-"879402396826-sfq4ukdf1luhh5o0ub0am7gnljce2ss5.apps.googleusercontent.com"}
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-""}
-  artifacts:
-    name: "electron-installers-$BUILD_VERSION"
-    paths:
-      - onlysaid-electron/release/build/
-    expire_in: 7 days
   cache:
     - key:
         files:
@@ -402,37 +397,40 @@ build:docker-images:
       docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-docs:dev-$BUILD_VERSION" \
         -f ./docker/Dockerfile.docs .
       
-      # Save images as tar files for artifacts
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-$BUILD_VERSION" > onlysaid-app.tar
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-socket:dev-$BUILD_VERSION" > onlysaid-socket.tar
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-kb:dev-$BUILD_VERSION" > onlysaid-kb.tar
-      docker save "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-docs:dev-$BUILD_VERSION" > onlysaid-docs.tar
-      
       echo "✅ All Docker images built successfully"
-  artifacts:
-    name: "docker-images-$BUILD_VERSION"
-    paths:
-      - "*.tar"
-    expire_in: 7 days
 
 publish:docker-images:
   stage: publish
   needs: ["build:docker-images"]
+  image: docker:latest
+  services:
+    - docker:dind
   before_script:
+    - apk add --no-cache curl bash jq
     - *load_secrets
+    - *verify_docker_environment
   script:
     - |
       echo "🚀 Uploading Docker images to JFrog..."
       
-      # No need to configure Docker daemon for insecure registries
-      # since we're using the host's Docker directly
+      # Rebuild images since we don't have tar files from artifacts
+      echo "📦 Rebuilding Docker images for push..."
       
-      # Load Docker images from tar files
-      echo "📦 Loading Docker images..."
-      docker load < onlysaid-app.tar
-      docker load < onlysaid-socket.tar
-      docker load < onlysaid-kb.tar
-      docker load < onlysaid-docs.tar
+      # Build Next.js Docker Image
+      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-app:dev-$BUILD_VERSION" \
+        -f ./docker/Dockerfile.next .
+      
+      # Build Socket Server Docker Image
+      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-socket:dev-$BUILD_VERSION" \
+        -f ./socket_server/Dockerfile.socket_server ./socket_server/
+      
+      # Build Knowledge Base Docker Image
+      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-kb:dev-$BUILD_VERSION" \
+        -f ./docker/Dockerfile.kb .
+      
+      # Build Documentation Docker Image
+      docker build -t "$DOCKER_REGISTRY_HOST/oa-onlysaid-app-docker-dev-local/onlysaid-docs:dev-$BUILD_VERSION" \
+        -f ./docker/Dockerfile.docs .
       
       # Docker login with retry logic
       echo "🔐 Authenticating with JFrog Docker registry..."
@@ -625,11 +623,6 @@ deploy:generate-manifests:
               - containerPort: 3000
       EOF
       echo "✅ Kubernetes manifests generated"
-  artifacts:
-    name: "k8s-manifests-$BUILD_VERSION"
-    paths:
-      - k8s-manifests/
-    expire_in: 7 days
 
 # Summary job
 build-summary:
