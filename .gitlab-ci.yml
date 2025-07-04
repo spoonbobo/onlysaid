@@ -30,8 +30,8 @@ stages:
 
 # Default settings
 default:
-  # Use Node.js 22 on Ubuntu 24.04 (newer GCC with C++20 support)
-  image: node:22-noble  # Ubuntu 24.04 Noble Numbat
+  # Use Node.js 22 on Ubuntu 22.04 (has GCC 11+ with C++20 support)
+  image: node:22-jammy
   tags:
     - onlysaid-runner
   
