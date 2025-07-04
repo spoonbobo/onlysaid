@@ -9,4 +9,5 @@
   - [CI/CD Setup](development/ci-cd.md)
   - [Docker Publishing](development/docker-publishing.md)
   - [JFrog Configuration](development/jfrog-setup.md)
+  - [Rootless Docker Setup](development/rootless-docker-setup.md)
 - [FAQ](faq.md)
