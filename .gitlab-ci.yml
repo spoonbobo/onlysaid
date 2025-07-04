@@ -34,9 +34,6 @@ default:
   tags:
     - onlysaid-runner
   
-  # Remove the image specification to use shell executor
-  # image: ubuntu:22.04  # Remove this line
-  
   # Retry configuration
   retry:
     max: 2
