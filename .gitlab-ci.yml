@@ -7,6 +7,9 @@ variables:
   BUILD_VERSION: $CI_COMMIT_SHA
   BUILD_NUMBER: $CI_PIPELINE_IID
   
+  # GitLab CI/CD user information
+  GITLAB_USER: $CI_COMMIT_AUTHOR_NAME
+  
   # Docker registry configuration (HTTP port 8080)
   DOCKER_REGISTRY_HOST: "1bucket.oneas1a.com:8080"
   ELECTRON_REGISTRY: "oa-onlysaid-electron-dev-local"
@@ -57,43 +60,17 @@ cache:
 # Job Templates
 .load_secrets: &load_secrets
   - |
-    echo "🔧 Loading configuration from ~/.secrets..."
+    echo "🔧 Using GitLab CI/CD variables..."
     
-    SECRETS_FILE="$HOME/.secrets"
-    if [ -f "$SECRETS_FILE" ]; then
-      echo "Loading environment variables from $SECRETS_FILE..."
-      source "$SECRETS_FILE"
-      
-      # Export to environment
-      export JFROG_URL
-      export JFROG_USER
-      export JFROG_USER_PASSWORD
-      export JFROG_TOKEN
-      export STRIPE_SECRET_KEY
-      export KB_BASE_URL
-      export MICROSOFT_CLIENT_ID
-      export ONLYSAID_API_URL
-      export ONLYSAID_DOMAIN
-      export SOCKET_SERVER_URL
-      export GOOGLE_CLIENT_ID
-      export GOOGLE_CLIENT_SECRET
-      
-      # Configure Docker registry URLs
-      export DOCKER_REGISTRY="${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
-      
-      echo "✅ Configuration loaded successfully"
-      echo "JFrog Web URL: ${JFROG_URL}"
-      echo "Docker Registry Host: ${DOCKER_REGISTRY_HOST}"
-      echo "Docker Registry: ${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
-      echo "JFrog User: ${JFROG_USER}"
-    else
-      echo "❌ Secrets file not found at $SECRETS_FILE"
-      echo "Current user: $(whoami)"
-      echo "Home directory: $HOME"
-      echo "Files in home directory:"
-      ls -la "$HOME" | grep -E '\.(secrets|env)' || echo "No secrets files found"
-      exit 1
-    fi
+    # Configure Docker registry URLs
+    export DOCKER_REGISTRY="${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
+    
+    echo "✅ Configuration loaded successfully"
+    echo "JFrog Web URL: ${JFROG_URL}"
+    echo "Docker Registry Host: ${DOCKER_REGISTRY_HOST}"
+    echo "Docker Registry: ${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
+    echo "JFrog User: ${JFROG_USER}"
+    echo "GitLab User: ${GITLAB_USER}"
 
 .verify_environment: &verify_environment
   - |
@@ -354,12 +331,12 @@ package:electron:
       npm run package
       echo "✅ Electron build completed successfully"
   variables:
-    KB_BASE_URL: ${KB_BASE_URL:-"http://onlysaid-dev.com/api/kb/"}
-    MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-""}
-    ONLYSAID_API_URL: ${ONLYSAID_API_URL:-"https://api.onlysaeid.com"}
+    KB_BASE_URL: ${KB_BASE_URL:-"https://onlysaid.com/api/kb"}
+    MICROSOFT_CLIENT_ID: ${MICROSOFT_CLIENT_ID:-"4b24891c-a62b-4da5-9fd1-fc6e1b912297"}
+    ONLYSAID_API_URL: ${ONLYSAID_API_URL:-"https://onlysaid.com/api/v2"}
     ONLYSAID_DOMAIN: ${ONLYSAID_DOMAIN:-"https://onlysaid.com"}
-    SOCKET_SERVER_URL: ${SOCKET_SERVER_URL:-"http://localhost:3001"}
-    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-""}
+    SOCKET_SERVER_URL: ${SOCKET_SERVER_URL:-"https://onlysaid.com/"}
+    GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-"879402396826-sfq4ukdf1luhh5o0ub0am7gnljce2ss5.apps.googleusercontent.com"}
     GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-""}
   artifacts:
     name: "electron-installers-$BUILD_VERSION"
