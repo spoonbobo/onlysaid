@@ -30,15 +30,15 @@ stages:
 
 # Default settings
 default:
-  # Use Node.js 22 instead of 18
-  image: node:22-bullseye
+  # Use Node.js 22 on Ubuntu 24.04 (newer GCC with C++20 support)
+  image: node:22-noble  # Ubuntu 24.04 Noble Numbat
   tags:
     - onlysaid-runner
   
   # Install additional tools needed across jobs
   before_script:
     - apt-get update -qq
-    - apt-get install -y -qq curl wget jq git
+    - apt-get install -y -qq curl wget jq git build-essential
   
   # Retry configuration
   retry:
