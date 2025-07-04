@@ -15,6 +15,9 @@ variables:
   FF_USE_FASTZIP: "true"
   CACHE_COMPRESSION_LEVEL: "fast"
   
+  # Enable Git submodules
+  GIT_SUBMODULE_STRATEGY: recursive
+
 # Stages definition
 stages:
   - setup
@@ -204,6 +207,11 @@ install:nextjs-dependencies:
 install:electron-dependencies:
   stage: setup
   needs: ["setup:verify-environment"]
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq curl wget jq git
+    # Manually checkout submodules
+    - git submodule update --init --recursive
   script:
     - *load_secrets
     - |
@@ -301,6 +309,11 @@ build:nextjs:
 package:electron:
   stage: package
   needs: ["test:electron"]
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq curl wget jq git
+    # Manually checkout submodules
+    - git submodule update --init --recursive
   script:
     - *load_secrets
     - |
