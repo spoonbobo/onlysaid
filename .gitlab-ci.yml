@@ -30,8 +30,8 @@ stages:
 
 # Default settings
 default:
-  # Use Node.js image instead of ubuntu:22.04
-  image: node:18-bullseye
+  # Use Node.js 22 instead of 18
+  image: node:22-bullseye
   tags:
     - onlysaid-runner
   
