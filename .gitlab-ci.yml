@@ -420,6 +420,8 @@ package:electron:
         - onlysaid-electron/node_modules/
       policy: pull
 
+# Update the Docker jobs to install Docker CLI first
+
 build:docker-images:
   stage: build
   needs: ["build:nextjs"]
@@ -428,6 +430,11 @@ build:docker-images:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq curl wget jq git build-essential
+    # Install Docker CLI for rootless Docker access
+    - |
+      echo "Installing Docker CLI..."
+      curl -fsSL https://get.docker.com | sh
+      echo "✅ Docker CLI installed"
     - *load_secrets
     - *docker_security
     - *verify_docker_environment
@@ -465,6 +472,11 @@ publish:docker-images:
   before_script:
     - apt-get update -qq
     - apt-get install -y -qq curl wget jq git build-essential
+    # Install Docker CLI for rootless Docker access
+    - |
+      echo "Installing Docker CLI..."
+      curl -fsSL https://get.docker.com | sh
+      echo "✅ Docker CLI installed"
     - *load_secrets
     - *docker_security
     - *verify_docker_environment
