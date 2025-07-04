@@ -30,8 +30,8 @@ stages:
 
 # Default settings
 default:
-  # Use Node.js 22 on Ubuntu 22.04 (has GCC 11+ with C++20 support)
-  image: node:22-jammy
+  # Use Node.js 22 on Debian 12 Bookworm (has GCC 12 with C++20 support)
+  image: node:22-bookworm
   tags:
     - onlysaid-runner
   
