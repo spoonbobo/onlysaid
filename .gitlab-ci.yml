@@ -7,9 +7,6 @@ variables:
   BUILD_VERSION: $CI_COMMIT_SHA
   BUILD_NUMBER: $CI_PIPELINE_IID
   
-  # GitLab CI/CD user information
-  GITLAB_USER: $CI_COMMIT_AUTHOR_NAME
-  
   # Docker registry configuration (HTTP port 8080)
   DOCKER_REGISTRY_HOST: "1bucket.oneas1a.com:8080"
   ELECTRON_REGISTRY: "oa-onlysaid-electron-dev-local"
@@ -75,7 +72,6 @@ cache:
     echo "Docker Registry Host: ${DOCKER_REGISTRY_HOST}"
     echo "Docker Registry: ${DOCKER_REGISTRY_HOST}/oa-onlysaid-app-docker-dev-local"
     echo "JFrog User: ${JFROG_USER}"
-    echo "GitLab User: ${GITLAB_USER}"
 
 # For regular jobs (no Docker needed)
 .verify_environment: &verify_environment
@@ -294,11 +290,6 @@ build:nextjs:
       echo "✅ Next.js application built successfully"
   variables:
     NODE_ENV: production
-  artifacts:
-    name: "nextjs-build-$BUILD_VERSION"
-    paths:
-      - .next/
-    expire_in: 1 day
   cache:
     - key: 
         files:
