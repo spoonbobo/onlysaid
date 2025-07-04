@@ -30,10 +30,12 @@ stages:
 
 # Default settings
 default:
-  # Use self-hosted runner with onlysaid-runner tag
+  # Use self-hosted runner with shell executor
   tags:
     - onlysaid-runner
-    - shared
+  
+  # Remove the image specification to use shell executor
+  # image: ubuntu:22.04  # Remove this line
   
   # Retry configuration
   retry:
