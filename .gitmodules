@@ -1,3 +1,6 @@
 [submodule "onlysaid-electron"]
 	path = onlysaid-electron
 	url = https://github.com/spoonbobo/onlysaid-electron
+[submodule "knowledge_base/LightRAG"]
+	path = knowledge_base/LightRAG
+	url = https://github.com/HKUDS/LightRAG
