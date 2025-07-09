@@ -202,30 +202,6 @@ services:
     networks:
       - onlysaid-network
 
-  onlysaid-kb:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile.kb
-    container_name: onlysaid-kb
-    volumes:
-      - ./knowledge_base:/app
-      - ./storage:/storage
-      - qdrant_data:/qdrant/storage
-    ports:
-      - "35430:35430"
-    depends_on:
-      - onlysaid-qdrant
-    environment:
-      - EMBED_MODEL=nomic-embed-text:latest
-      - OLLAMA_MODEL=gemma3:4b
-      - OLLAMA_API_BASE_URL=http://onlysaid-ollama:11434
-      - OPENAI_API_KEY=${OPENAI_API_KEY}
-      - OPENAI_API_BASE_URL=${OPENAI_API_BASE_URL}
-      - OPENAI_MODEL=${OPENAI_MODEL}
-    networks:
-      - onlysaid-network
-    restart: always
-
   onlysaid-stt:
     build:
       context: .
@@ -406,7 +382,6 @@ volumes:
     driver: local
   redis-cluster_data-5:
     driver: local
-  # ./storage:
   lightrag_config:
     driver: local
 
