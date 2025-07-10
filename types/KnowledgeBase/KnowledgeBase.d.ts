@@ -6,7 +6,6 @@ export interface IKnowledgeBase {
     url: string;
     create_at: string;
     update_at: string;
-    enabled: boolean;
     configured: boolean;
     embedding_engine: string;
     workspace_id: string;
