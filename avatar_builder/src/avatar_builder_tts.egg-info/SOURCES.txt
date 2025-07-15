@@ -1,0 +1,12 @@
+README.md
+pyproject.toml
+src/__init__.py
+src/main.py
+src/models.py
+src/tts_manager.py
+src/utils.py
+src/avatar_builder_tts.egg-info/PKG-INFO
+src/avatar_builder_tts.egg-info/SOURCES.txt
+src/avatar_builder_tts.egg-info/dependency_links.txt
+src/avatar_builder_tts.egg-info/requires.txt
+src/avatar_builder_tts.egg-info/top_level.txt

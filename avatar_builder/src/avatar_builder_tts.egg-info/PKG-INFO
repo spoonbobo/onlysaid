@@ -1,0 +1,420 @@
+Metadata-Version: 2.4
+Name: avatar-builder-tts
+Version: 0.1.0
+Summary: Streaming TTS service using FastAPI and Coqui TTS
+Author-email: OnlySaid <dev@onlysaid.com>
+Requires-Python: >=3.9
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.104.0
+Requires-Dist: uvicorn[standard]>=0.24.0
+Requires-Dist: websockets>=12.0
+Requires-Dist: TTS>=0.22.0
+Requires-Dist: torch>=2.0.0
+Requires-Dist: torchaudio>=2.0.0
+Requires-Dist: librosa>=0.10.0
+Requires-Dist: soundfile>=0.12.0
+Requires-Dist: numpy<1.25.0,>=1.22.0
+Requires-Dist: pydantic>=2.0.0
+Requires-Dist: python-multipart>=0.0.6
+Requires-Dist: aiofiles>=23.0.0
+Requires-Dist: pydub>=0.25.0
+Requires-Dist: asyncio-throttle>=1.0.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: loguru>=0.7.0
+Requires-Dist: aiohttp>=3.8.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-asyncio>=0.21.0; extra == "dev"
+Requires-Dist: black>=23.0.0; extra == "dev"
+Requires-Dist: isort>=5.12.0; extra == "dev"
+Requires-Dist: flake8>=6.0.0; extra == "dev"
+
+# Streaming TTS API
+
+A high-performance streaming Text-to-Speech API built with FastAPI and Coqui TTS, supporting multiple languages, voice cloning, and real-time audio streaming.
+
+## Features
+
+- 🎤 **Multi-language TTS**: Support for 70+ languages
+- 🔄 **Streaming Audio**: Real-time chunked audio streaming
+- 🎭 **Voice Cloning**: Clone voices from reference audio samples
+- 🌐 **WebSocket Support**: Real-time bidirectional communication
+- 📡 **RESTful API**: Easy-to-use HTTP endpoints
+- ⚡ **High Performance**: Async processing with FastAPI
+- 🔧 **Configurable**: Flexible model and voice configuration
+- 📊 **Monitoring**: Health checks and metrics
+
+## Quick Start
+
+### Prerequisites
+
+- Python 3.9+
+- UV package manager
+
+### Installation
+
+1. Clone the repository:
+```bash
+git clone <repository-url>
+cd avatar_builder
+```
+
+2. Install dependencies using UV:
+```bash
+uv sync
+```
+
+3. Start the server:
+```bash
+python start_server.py
+```
+
+The server will be available at `http://localhost:8000`
+
+### Basic Usage
+
+#### Synthesize Speech
+```bash
+curl -X POST "http://localhost:8000/api/tts" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "Hello, world!", "language": "en"}' \
+  --output hello.wav
+```
+
+#### Stream Speech
+```bash
+curl -X POST "http://localhost:8000/api/tts/stream" \
+  -H "Content-Type: application/json" \
+  -d '{"text": "This is a longer text that will be streamed in chunks.", "language": "en"}'
+```
+
+#### Voice Cloning
+```bash
+curl -X POST "http://localhost:8000/api/voice-clone" \
+  -F "text=Hello, this is my cloned voice!" \
+  -F "language=en" \
+  -F "audio_file=@reference_voice.wav" \
+  --output cloned_voice.wav
+```
+
+## API Endpoints
+
+### Core Endpoints
+
+- `GET /` - API information
+- `GET /health` - Health check
+- `GET /api/languages` - List available languages
+- `GET /api/models` - List available models
+
+### TTS Endpoints
+
+- `POST /api/tts` - Basic speech synthesis
+- `POST /api/tts/stream` - Streaming speech synthesis
+- `POST /api/voice-clone` - Voice cloning from reference audio
+
+### WebSocket
+
+- `WS /ws/tts` - Real-time TTS streaming
+
+## Configuration
+
+### Models Configuration
+
+Edit `config/models.json` to configure available models:
+
+```json
+{
+  "languages": {
+    "en": "English",
+    "es": "Spanish",
+    "fr": "French"
+  },
+  "default_models": {
+    "multilingual": {
+      "model_name": "tts_models/multilingual/multi-dataset/xtts_v2",
+      "description": "XTTS v2 - High quality multilingual TTS",
+      "supports_streaming": true,
+      "supports_voice_cloning": true,
+      "languages": ["en", "es", "fr", "de", "it", "pt"]
+    }
+  }
+}
+```
+
+### Environment Variables
+
+Copy `config.env` and customize:
+
+```bash
+# Server Configuration
+TTS_SERVER_HOST=0.0.0.0
+TTS_SERVER_PORT=8000
+
+# Model Configuration
+TTS_MODELS_CONFIG_PATH=config/models.json
+
+# Audio Configuration
+TTS_SAMPLE_RATE=22050
+TTS_CHUNK_SIZE=1024
+
+# GPU Configuration
+TTS_USE_GPU=false
+```
+
+## Client Examples
+
+### Python Client
+
+```python
+import asyncio
+import aiohttp
+
+async def synthesize_speech():
+    async with aiohttp.ClientSession() as session:
+        payload = {
+            "text": "Hello, world!",
+            "language": "en",
+            "speed": 1.0
+        }
+        
+        async with session.post("http://localhost:8000/api/tts", json=payload) as response:
+            if response.status == 200:
+                with open("output.wav", "wb") as f:
+                    f.write(await response.read())
+                print("Audio saved to output.wav")
+
+asyncio.run(synthesize_speech())
+```
+
+### JavaScript Client
+
+```javascript
+async function synthesizeSpeech() {
+    const response = await fetch('http://localhost:8000/api/tts', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            text: 'Hello, world!',
+            language: 'en',
+            speed: 1.0
+        })
+    });
+    
+    if (response.ok) {
+        const audioBlob = await response.blob();
+        const audioUrl = URL.createObjectURL(audioBlob);
+        
+        const audio = new Audio(audioUrl);
+        audio.play();
+    }
+}
+```
+
+### WebSocket Client
+
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws/tts');
+
+ws.onopen = function() {
+    ws.send(JSON.stringify({
+        text: 'Hello, this is a WebSocket test!',
+        language: 'en',
+        speed: 1.0
+    }));
+};
+
+ws.onmessage = function(event) {
+    const data = JSON.parse(event.data);
+    if (data.audio_data) {
+        // Process audio chunk
+        console.log(`Received chunk ${data.chunk_id}: ${data.text}`);
+    }
+};
+```
+
+## Supported Languages
+
+The API supports 70+ languages including:
+
+- **European**: English, Spanish, French, German, Italian, Portuguese, Dutch, Russian, Polish, Czech, Hungarian, Romanian, Bulgarian, Croatian, Slovak, Slovenian, Estonian, Latvian, Lithuanian, Maltese, Catalan, Basque, Galician, Welsh, Irish, Icelandic, Macedonian, Albanian, Serbian, Bosnian, Montenegrin, Ukrainian, Belarusian, Kazakh, Kyrgyz, Uzbek, Tajik, Mongolian, Georgian, Armenian, Azerbaijani
+
+- **Middle Eastern**: Hebrew, Persian, Arabic, Urdu
+
+- **Asian**: Chinese, Japanese, Korean, Hindi, Bengali, Tamil, Telugu, Malayalam, Kannada, Gujarati, Punjabi, Odia, Assamese, Nepali, Sinhala, Myanmar, Khmer, Lao, Thai, Vietnamese, Indonesian, Malay, Filipino
+
+- **African**: Swahili, Amharic, Yoruba, Igbo, Hausa, Zulu, Afrikaans, Xhosa
+
+## Voice Cloning
+
+The API supports voice cloning using reference audio samples:
+
+### Requirements
+- Reference audio: 3-30 seconds
+- Supported formats: WAV, MP3, FLAC
+- Clear speech, minimal background noise
+- Single speaker
+
+### Usage
+```bash
+# Upload reference audio and generate cloned voice
+curl -X POST "http://localhost:8000/api/voice-clone" \
+  -F "text=Your text here" \
+  -F "language=en" \
+  -F "audio_file=@reference.wav" \
+  --output cloned.wav
+```
+
+## Streaming Protocol
+
+The streaming API uses Server-Sent Events (SSE) to deliver audio chunks:
+
+```
+POST /api/tts/stream
+Content-Type: application/json
+
+{
+  "text": "Long text to be streamed...",
+  "language": "en",
+  "max_sentence_length": 200
+}
+```
+
+Response:
+```
+data: {"chunk_id": 0, "text": "First sentence.", "audio_data": "...", "is_final": false}
+data: {"chunk_id": 1, "text": "Second sentence.", "audio_data": "...", "is_final": true}
+data: [DONE]
+```
+
+## Performance Optimization
+
+### GPU Acceleration
+Enable GPU support by setting:
+```bash
+TTS_USE_GPU=true
+TTS_GPU_DEVICE=0
+```
+
+### Model Caching
+Models are cached after first load. Preload frequently used models:
+```bash
+curl -X POST "http://localhost:8000/api/models/preload" \
+  -H "Content-Type: application/json" \
+  -d '{"model_name": "tts_models/en/ljspeech/tacotron2-DDC_ph"}'
+```
+
+### Concurrent Requests
+Configure concurrent request limits:
+```bash
+TTS_MAX_CONCURRENT_REQUESTS=10
+```
+
+## Development
+
+### Running Tests
+```bash
+uv run pytest tests/
+```
+
+### Code Formatting
+```bash
+uv run black src/
+uv run isort src/
+```
+
+### Development Server
+```bash
+uv run uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+## Docker Deployment
+
+### Build Image
+```bash
+docker build -t streaming-tts-api .
+```
+
+### Run Container
+```bash
+docker run -p 8000:8000 -v $(pwd)/config:/app/config streaming-tts-api
+```
+
+### Docker Compose
+```yaml
+version: '3.8'
+services:
+  tts-api:
+    build: .
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./config:/app/config
+      - ./models:/app/models
+    environment:
+      - TTS_USE_GPU=false
+```
+
+## Monitoring
+
+### Health Check
+```bash
+curl http://localhost:8000/health
+```
+
+### Metrics
+- Models loaded
+- Active connections
+- Request statistics
+- Error rates
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Model Loading Errors**
+   - Check model names in configuration
+   - Ensure sufficient memory/disk space
+   - Verify network connectivity for model downloads
+
+2. **Audio Quality Issues**
+   - Adjust sample rate in configuration
+   - Check input text normalization
+   - Verify model compatibility with language
+
+3. **Performance Issues**
+   - Enable GPU acceleration
+   - Increase concurrent request limits
+   - Use model caching
+
+### Logging
+Logs are available in `logs/tts_server.log` with configurable levels:
+```bash
+TTS_LOG_LEVEL=DEBUG
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Acknowledgments
+
+- [Coqui TTS](https://github.com/coqui-ai/TTS) - The underlying TTS engine
+- [FastAPI](https://fastapi.tiangolo.com/) - The web framework
+- [UV](https://docs.astral.sh/uv/) - Package management
+
+## Support
+
+For issues and questions:
+- Create an issue on GitHub
+- Check the documentation
+- Review the examples 

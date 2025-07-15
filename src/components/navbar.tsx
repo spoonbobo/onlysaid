@@ -50,7 +50,7 @@ const NavBar = () => {
             }}
             onClick={() => window.location.href = `/${locale}`}
           >
-            Onlysaid
+            STP Demo1
           </Typography>
 
           {/* Center - Empty for now */}
