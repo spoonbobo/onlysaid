@@ -1,0 +1,20 @@
+version: '3.8'
+
+services:
+  onlysaid-stt:
+    environment:
+      # Disable GPU for WSL
+      - CUDA_VISIBLE_DEVICES=""
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        # Remove GPU reservations for WSL
+
+  onlysaid-ollama:
+    environment:
+      # Disable GPU for WSL
+      - CUDA_VISIBLE_DEVICES=""
+    deploy:
+      resources:
+        # Remove GPU reservations for WSL 
