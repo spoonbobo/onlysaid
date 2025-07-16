@@ -5,7 +5,7 @@ This section contains documentation for developers working on the Onlysaid proje
 ## Quick Links
 
 - **[CI/CD Setup](development/ci-cd.md)** - Configure GitHub Actions workflows
-- **[Docker Publishing](development/docker-publishing.md)** - Publish Docker images to JFrog Artifactory
+- **[Apps Setup](development/appssetup.md)** - step-by-step instructions for configuring the Onlysaid application stack
 - **[JFrog Configuration](development/jfrog-setup.md)** - Set up JFrog Artifactory for artifact management
 
 ## Prerequisites
