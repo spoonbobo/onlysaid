@@ -6,6 +6,7 @@
   - [Accomodation](use-cases/accomodation.md)
   - [Sports](use-cases/sports.md)
 - [Development](development.md)
+  - [Apps setup](appssetup.md)
   - [CI/CD Setup](development/ci-cd.md)
   - [Docker Publishing](development/docker-publishing.md)
   - [JFrog Configuration](development/jfrog-setup.md)
