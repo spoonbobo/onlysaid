@@ -210,7 +210,7 @@ services:
     ports:
       - "34430:34430"
     environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+      # - NVIDIA_VISIBLE_DEVICES=all  # Disabled for WSL compatibility
       - PYTHONUNBUFFERED=1
       - PULSE_RUNTIME_PATH=/run/user/1000/pulse
     volumes:
@@ -228,11 +228,12 @@ services:
       resources:
         limits:
           memory: 4G
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
+        # GPU reservations disabled for WSL compatibility
+        # reservations:
+        #   devices:
+        #     - driver: nvidia
+        #       count: all
+        #       capabilities: [gpu]
     shm_size: 1gb
     # Add privileged mode for audio access
     privileged: true
@@ -247,15 +248,17 @@ services:
     networks:
       - onlysaid-network
     restart: always
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]
-    environment:
-      - NVIDIA_VISIBLE_DEVICES=all
+    # GPU deployment settings disabled for WSL compatibility
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+    # Environment variables disabled for WSL compatibility
+    # environment:
+    #   - NVIDIA_VISIBLE_DEVICES=all
 
   onlysaid-n8n:
     image: docker.n8n.io/n8nio/n8n

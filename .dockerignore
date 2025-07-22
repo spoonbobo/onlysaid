@@ -1,0 +1,135 @@
+# Exclude Electron app and its dependencies
+onlysaid-electron/
+onlysaid-electron/.erb/node_modules/
+onlysaid-electron/node_modules/
+onlysaid-electron/release/
+onlysaid-electron/dist/
+
+# Node modules in root (will be installed in container)
+node_modules/
+
+# Git and version control
+.git/
+.gitignore
+.gitattributes
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+
+# nyc test coverage
+.nyc_output
+
+# Dependency directories
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional REPL history
+.node_repl_history
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Next.js build output
+.next/
+
+# Nuxt.js build / generate output
+.nuxt
+dist
+
+# Storybook build outputs
+.out
+.storybook-out
+
+# Temporary folders
+tmp/
+temp/
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+
+# Documentation
+README.md
+*.md
+
+# Avatar builder cache and outputs
+avatar_builder/voice_clone_output/
+avatar_builder/websocket_output/
+
+# Knowledge base storage
+knowledge_base/LightRAG/data/
+storage/
+
+# Development tools
+.eslintrc*
+.prettier*
+tsconfig.json
+jest.config.js
+
+# Helm charts
+helm/
+
+# Documentation (Note: docs/ needed for onlysaid-docs service)
+# docs/
+
+# Test files
+**/*.test.js
+**/*.test.ts
+**/*.spec.js
+**/*.spec.ts
+tests/
+test/
+
+# Build artifacts
+build/
+dist/
+out/
+
+# Cache directories
+.cache/
+.parcel-cache/
+
+# Development database files
+*.sqlite
+*.sqlite3
+*.db 
