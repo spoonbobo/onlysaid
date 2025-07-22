@@ -698,7 +698,9 @@
     "loading_authentication": "驗證中...",
     "please_wait_while_we_verify_your_account": "正在驗證您的帳戶，如果時間過長，請稍後再試。",
     "authentication_complete": "驗證完成",
-    "authentication_error": "驗證錯誤",
+    "authentication_error": "驗證失敗",
+    "return_to_application": "驗證成功！您現在可以返回應用程式。",
+    "authentication_failed_message": "請關閉此瀏覽器視窗並重新嘗試登入。",
     "window_will_close_automatically": "此視窗將在",
     "seconds": "秒後自動關閉",
     "close_window_now": "關閉此視窗",
@@ -708,8 +710,7 @@
     "this_link": "此連結",
     "to_open_app": "打開應用。",
     "back_to_signin": "返回登入頁面",
-    "open_app": "打開應用",
-    "or_click_this_link_directly": "或直接點擊此連結："
+    "open_app": "打開應用"
   },
   "Errors": {
     "access_denied": "訪問被拒絕",

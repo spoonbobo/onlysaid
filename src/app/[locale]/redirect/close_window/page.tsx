@@ -57,21 +57,19 @@ export default function CloseWindowPage() {
     return (
         <Box
             sx={{
-                display: 'flex',
-                justifyContent: 'center',
-                alignItems: 'center',
-                minHeight: '100vh',
-                bgcolor: 'background.default',
-                p: 2
+                maxWidth: '600px',
+                width: '100%',
+                mx: 'auto',
+                mt: 12,
+                px: 4
             }}
         >
             <Paper
                 elevation={3}
                 sx={{
-                    p: 4,
-                    maxWidth: 500,
-                    width: '100%',
-                    textAlign: 'center'
+                    p: 8,
+                    borderRadius: 2,
+                    bgcolor: 'background.paper'
                 }}
             >
                 <Stack spacing={3} alignItems="center">
@@ -83,32 +81,31 @@ export default function CloseWindowPage() {
 
                     <Typography variant="h4" fontWeight="bold">
                         {type === 'error' 
-                            ? (t('authentication_error') || 'Authentication Error')
-                            : (t('authentication_complete') || 'Authentication Complete')
+                            ? t('authentication_error')
+                            : t('return_to_application')
                         }
                     </Typography>
 
-                    <Box sx={{ 
-                        bgcolor: type === 'error' ? 'error.light' : 'success.light', 
-                        p: 2, 
-                        borderRadius: 2,
-                        width: '100%'
-                    }}>
-                        <Typography variant="body2" color="text.secondary">
-                            {type === 'error' 
-                                ? 'Authentication failed. Please close this browser window and try signing in again.'
-                                : 'You can now close this browser window and return to the app.'
-                            }
-                        </Typography>
-                    </Box>
+                    {type === 'error' && (
+                        <Box sx={{ 
+                            bgcolor: 'error.light', 
+                            p: 2, 
+                            borderRadius: 2,
+                            width: '100%'
+                        }}>
+                            <Typography variant="body2" color="text.secondary">
+                                {t('authentication_failed_message')}
+                            </Typography>
+                        </Box>
+                    )}
 
                     <Typography variant="body2" color="text.secondary" sx={{ textAlign: 'center' }}>
                         {type === 'error' 
-                            ? (t('if_window_does_not_close_manually') || 'Please close this browser tab/window manually.')
+                            ? t('if_window_does_not_close_manually')
                             : deeplinkUrl 
                                 ? (
                                     <>
-                                        {t('if_window_does_not_close_manually_with_link_prefix') || 'Please close this browser tab/window manually or click'}{' '}
+                                        {t('if_window_does_not_close_manually_with_link_prefix')}{' '}
                                         <Link
                                             href={deeplinkUrl}
                                             sx={{
@@ -116,12 +113,12 @@ export default function CloseWindowPage() {
                                                 textDecoration: 'underline'
                                             }}
                                         >
-                                            {t('this_link') || 'this link'}
+                                            {t('this_link')}
                                         </Link>{' '}
-                                        {t('to_open_app') || 'to open the app.'}
+                                        {t('to_open_app')}
                                     </>
                                 )
-                                : (t('if_window_does_not_close_manually') || 'Please close this browser tab/window manually.')
+                                : t('if_window_does_not_close_manually')
                         }
                     </Typography>
                 </Stack>

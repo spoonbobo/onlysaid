@@ -50,7 +50,7 @@ const NavBar = () => {
             }}
             onClick={() => window.location.href = `/${locale}`}
           >
-            STP Demo1
+            {process.env.NEXT_PUBLIC_APP_NAME || 'STP Demo1'}
           </Typography>
 
           {/* Center - Empty for now */}
