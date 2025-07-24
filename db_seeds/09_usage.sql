@@ -40,9 +40,9 @@ CREATE INDEX IF NOT EXISTS idx_model_pricing_model ON model_pricing(model);
 
 -- Sample data with correct user IDs from 01_users.sql
 INSERT INTO usage_logs (date, user_id, kind, max_mode, model, cost_requests) VALUES
-('2024-06-04 12:49:00+00', '60b1a441-a4dd-4b5e-b88e-1ac1226005ca', 'Included in Pro', FALSE, 'claude-4-sonnet', 0.5),
-('2024-06-04 12:42:00+00', '60b1a441-a4dd-4b5e-b88e-1ac1226005ca', 'Included in Pro', FALSE, 'claude-4-sonnet', 0.5),
-('2024-06-04 01:29:00+00', '60b1a441-a4dd-4b5e-b88e-1ac1226005ca', 'Included in Pro', FALSE, 'claude-4-sonnet', 0.5);
+('2024-06-04 12:49:00+00', '11111111-1111-4111-1111-111111111111', 'Included in Pro', FALSE, 'claude-4-sonnet', 0.5),
+('2024-06-04 12:42:00+00', '11111111-1111-4111-1111-111111111111', 'Included in Pro', FALSE, 'claude-4-sonnet', 0.5),
+('2024-06-04 01:29:00+00', '11111111-1111-4111-1111-111111111111', 'Included in Pro', FALSE, 'claude-4-sonnet', 0.5);
 
 INSERT INTO model_pricing (model, cost_per_request) VALUES
 ('claude-4-sonnet', 0.5),
@@ -50,5 +50,5 @@ INSERT INTO model_pricing (model, cost_per_request) VALUES
 ('gpt-3.5-turbo', 0.2);
 
 INSERT INTO user_plans (user_id, plan_type, monthly_limit, reset_date) VALUES
-('60b1a441-a4dd-4b5e-b88e-1ac1226005ca', 'Pro', 100.0, '2024-07-01');
+('11111111-1111-4111-1111-111111111111', 'Pro', 100.0, '2024-07-01');
  

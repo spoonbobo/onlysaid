@@ -151,14 +151,22 @@ export async function PUT(request: Request, { params }: { params: Promise<{ work
         .returning('*');
 
     if (status === 'active') {
-        await db(DBTABLES.WORKSPACE_USERS)
-            .insert({
-                workspace_id: workspaceId,
-                user_id: user_id,
-                role: 'member'
-            })
-            .onConflict(['workspace_id', 'user_id'])
-            .ignore();
+        // Find member role
+        const memberRole = await db('roles')
+            .where('name', 'member')
+            .whereNull('workspace_id') // System role
+            .first();
+
+        if (memberRole) {
+            await db(DBTABLES.WORKSPACE_USERS)
+                .insert({
+                    workspace_id: workspaceId,
+                    user_id: user_id,
+                    role_id: memberRole.id
+                })
+                .onConflict(['workspace_id', 'user_id'])
+                .merge(['role_id']);
+        }
     }
 
     return NextResponse.json(

@@ -10,10 +10,32 @@ export interface IWorkspace {
     settings: Record<string, any>;
 }
 
+export interface IRole {
+    id: string;
+    name: string;
+    description?: string;
+    workspace_id?: string;
+    is_system_role: boolean;
+    display_order?: number;
+    created_at: string;
+    updated_at: string;
+}
+
+export interface IPolicy {
+    id: string;
+    name: string;
+    description?: string;
+    resource_type: string;
+    action: string;
+    scope: string;
+    created_at: string;
+    updated_at: string;
+}
+
 export interface IWorkspaceUser {
     workspace_id: string;
     user_id: string;
-    role: 'super_admin' | 'admin' | 'member';
+    role_id: string;
     created_at: string;
     username?: string;
     avatar?: string;
@@ -22,6 +44,17 @@ export interface IWorkspaceUser {
     level?: number;
     agent_id?: string;
     settings?: Record<string, any>;
+    // Complete role information with policies
+    role: {
+        id: string;
+        name: string;
+        description?: string;
+        is_system_role: boolean;
+        display_order?: number;
+        policies: IPolicy[];
+    };
+    // Direct policies assigned to user (additional permissions)
+    direct_policies: Array<IPolicy & { granted_by?: string }>;
 }
 
 export interface ICreateWorkspaceArgs {
@@ -46,19 +79,20 @@ export interface IWorkspaceUserArgs {
     token: string;
     workspaceId: string;
     userId: string;
-    role?: string;
+    role_id?: string;
 }
 
 export interface IGetWorkspaceUsersArgs {
     token: string;
     workspaceId: string;
-    role?: string;
+    role_id?: string;
 }
 
 export interface IAddUserToWorkspaceRequest {
-    user_id: string;
+    user_id?: string;
     email?: string;
-    role: 'super_admin' | 'admin' | 'member';
+    role_id?: string;
+    role_name?: string; // For role lookup by name
 }
 
 export interface IAddUsersToWorkspaceArgs {
@@ -74,12 +108,49 @@ export interface IRemoveUserFromWorkspaceArgs {
 }
 
 export interface IWorkspaceWithRole extends IWorkspace {
-    role?: 'super_admin' | 'admin' | 'member';
+    role_id?: string;
+    role_name?: string;
 }
 
 export interface IGetUsersFromWorkspaceArgs {
     token: string;
     workspaceId: string;
+}
+
+export interface IUserRole {
+    id: string;
+    user_id: string;
+    role_id: string;
+    workspace_id?: string;
+    assigned_by?: string;
+    created_at: string;
+}
+
+export interface IUserPolicy {
+    id: string;
+    user_id: string;
+    workspace_id?: string;
+    policy_id: string;
+    granted_by?: string;
+    created_at: string;
+}
+
+export interface IAssignRoleRequest {
+    user_id: string;
+    role_id: string;
+}
+
+export interface ICreateRoleRequest {
+    name: string;
+    description?: string;
+    policy_ids: string[];
+}
+
+export interface IUpdateUserRoleArgs {
+    token: string;
+    workspaceId: string;
+    userId: string;
+    role_id: string;
 }
 
 export interface IWorkspaceInvitation {

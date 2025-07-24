@@ -39,9 +39,10 @@ export async function GET(
             .where('resource_permissions.user_id', userId)
             .where('resource_permissions.workspace_id', workspaceId)
             .where(builder => {
-                if (resourcePermissions.expires_at) {
-                    builder.where('expires_at', '>', new Date());
-                }
+                builder.where(function() {
+                    this.whereNull('resource_permissions.expires_at')
+                        .orWhere('resource_permissions.expires_at', '>', new Date());
+                });
             })
             .select('policies.*', 'resource_permissions.resource_type', 'resource_permissions.resource_id', 'resource_permissions.granted_by', 'resource_permissions.expires_at');
 
