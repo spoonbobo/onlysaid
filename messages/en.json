@@ -723,5 +723,65 @@
     "currently_only_file_browsing": "Currently only file browsing is supported",
     "learn": "Learn",
     "learn_description": "Learning is key to personal growth, we provide various learning resources and tools to help you improve your skills and knowledge."
+  },
+  "workspace": {
+    "mypartner": {
+      "courseworkHelper": {
+        "noWorkspaceSelected": "No workspace selected"
+      },
+      "coursework": {
+        "quizHelp": {
+          "title": "Quiz Helper",
+          "shortDescription": "Generate **practice questions** from your knowledge base content for exam preparation.",
+          "detailedFeatures": "### 🎯 **Question Types:**\n• Multiple choice, short answer, and true/false questions\n• **AI-powered answer evaluation** with detailed feedback\n• **Readable mathematical expressions**: C<sub style=\"font-size: 0.85em;\">0</sub> = ε<sub style=\"font-size: 0.85em;\">0</sub> A/d, E = mc<sup style=\"font-size: 0.85em;\">2</sup>\n\n### ⚡ **Performance:**\n• **Advanced Parallel Processing** - up to 8 concurrent AI analyses\n• **🎯 Smart Task Prioritization** - evaluations processed first\n• **🔄 Intelligent Retry Logic** with exponential backoff\n• **📊 Real-time Progress Tracking** with throughput metrics\n• **🚀 Optimized Performance** for faster question checking",
+          "form": {
+            "numberOfQuestions": "Number of Questions",
+            "questionType": "Question Type",
+            "difficultyLevel": "Difficulty Level",
+            "selectKnowledgeBases": "Select Knowledge Bases:",
+            "noKnowledgeBases": "No knowledge bases found. Please create a knowledge base first.",
+            "generateQuestions": "Generate Practice Questions",
+            "generatingQuestions": "Generating Questions...",
+            "checkAnswers": "Check Answers",
+            "checkingAnswers": "Checking Answers...",
+            "reset": "Reset"
+          },
+          "questionTypes": {
+            "multipleChoice": "Multiple Choice",
+            "shortAnswer": "Short Answer",
+            "trueFalse": "True/False",
+            "mixed": "Mixed Types"
+          },
+          "difficulty": {
+            "easy": "Easy",
+            "medium": "Medium", 
+            "hard": "Hard",
+            "mixedLevels": "Mixed Levels"
+          },
+          "answers": {
+            "true": "True",
+            "false": "False",
+            "enterAnswer": "Enter your answer here...",
+            "correctAnswer": "Correct Answer:",
+            "answerEvaluation": "Answer Evaluation",
+            "answerAnalysis": "Answer Analysis",
+            "yourAnswer": "Your Answer:",
+            "score": "Score:",
+            "detailedFeedback": "Detailed Feedback:",
+            "additionalExplanation": "Additional Explanation:"
+          },
+          "progress": {
+            "aiAnalysisInProgress": "AI Analysis in Progress",
+            "complete": "Complete",
+            "processingRate": "Processing Rate",
+            "estimatedTime": "Estimated Time",
+            "remaining": "remaining",
+            "calculating": "Calculating...",
+            "parallelProcessing": "Parallel Processing"
+          },
+          "practiceQuestions": "Practice Questions"
+        }
+      }
+    }
   }
 }

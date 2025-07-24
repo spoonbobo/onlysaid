@@ -742,5 +742,65 @@
     "yes": "是",
     "no": "否",
     "noUsageData": "暫無使用記錄"
+  },
+  "workspace": {
+    "mypartner": {
+      "courseworkHelper": {
+        "noWorkspaceSelected": "未選擇工作區"
+      },
+      "coursework": {
+        "quizHelp": {
+          "title": "測驗助手",
+          "shortDescription": "基於您的知識庫內容生成**練習題**，為考試做準備。",
+          "detailedFeatures": "### 🎯 **題目類型：**\n• 選擇題、簡答題和判斷題\n• **AI智能答案評估**，提供詳細反饋\n• **可讀數學表達式**：C<sub style=\"font-size: 0.85em;\">0</sub> = ε<sub style=\"font-size: 0.85em;\">0</sub> A/d，E = mc<sup style=\"font-size: 0.85em;\">2</sup>\n\n### ⚡ **性能特性：**\n• **高級並行處理** - 最多8個並發AI分析\n• **🎯 智能任務優先級** - 評估優先處理\n• **🔄 智能重試邏輯**，指數退避算法\n• **📊 實時進度追蹤**，吞吐量指標\n• **🚀 性能優化**，更快的題目檢查",
+          "form": {
+            "numberOfQuestions": "題目數量",
+            "questionType": "題目類型",
+            "difficultyLevel": "難度等級",
+            "selectKnowledgeBases": "選擇知識庫：",
+            "noKnowledgeBases": "未找到知識庫。請先創建知識庫。",
+            "generateQuestions": "生成練習題",
+            "generatingQuestions": "正在生成題目...",
+            "checkAnswers": "檢查答案",
+            "checkingAnswers": "正在檢查答案...",
+            "reset": "重置"
+          },
+          "questionTypes": {
+            "multipleChoice": "選擇題",
+            "shortAnswer": "簡答題",
+            "trueFalse": "判斷題",
+            "mixed": "混合類型"
+          },
+          "difficulty": {
+            "easy": "簡單",
+            "medium": "中等",
+            "hard": "困難",
+            "mixedLevels": "混合難度"
+          },
+          "answers": {
+            "true": "正確",
+            "false": "錯誤",
+            "enterAnswer": "請在此輸入您的答案...",
+            "correctAnswer": "正確答案：",
+            "answerEvaluation": "答案評估",
+            "answerAnalysis": "答案分析",
+            "yourAnswer": "您的答案：",
+            "score": "得分：",
+            "detailedFeedback": "詳細反饋：",
+            "additionalExplanation": "補充說明："
+          },
+          "progress": {
+            "aiAnalysisInProgress": "AI分析進行中",
+            "complete": "完成",
+            "processingRate": "處理速度",
+            "estimatedTime": "預計時間",
+            "remaining": "剩餘",
+            "calculating": "計算中...",
+            "parallelProcessing": "並行處理"
+          },
+          "practiceQuestions": "練習題"
+        }
+      }
+    }
   }
 }

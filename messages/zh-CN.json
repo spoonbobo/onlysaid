@@ -692,5 +692,65 @@
     "currently_only_file_browsing": "目前仅支持文件浏览",
     "learn": "学习",
     "learn_description": "学习是个人成长的关键，我们提供多种学习资源和工具，帮助你提升技能和知识。"
+  },
+  "workspace": {
+    "mypartner": {
+      "courseworkHelper": {
+        "noWorkspaceSelected": "未选择工作区"
+      },
+      "coursework": {
+        "quizHelp": {
+          "title": "测验助手",
+          "shortDescription": "基于您的知识库内容生成**练习题**，为考试做准备。",
+          "detailedFeatures": "### 🎯 **题目类型：**\n• 选择题、简答题和判断题\n• **AI智能答案评估**，提供详细反馈\n• **可读数学表达式**：C<sub style=\"font-size: 0.85em;\">0</sub> = ε<sub style=\"font-size: 0.85em;\">0</sub> A/d，E = mc<sup style=\"font-size: 0.85em;\">2</sup>\n\n### ⚡ **性能特性：**\n• **高级并行处理** - 最多8个并发AI分析\n• **🎯 智能任务优先级** - 评估优先处理\n• **🔄 智能重试逻辑**，指数退避算法\n• **📊 实时进度追踪**，吞吐量指标\n• **🚀 性能优化**，更快的题目检查",
+          "form": {
+            "numberOfQuestions": "题目数量",
+            "questionType": "题目类型",
+            "difficultyLevel": "难度等级",
+            "selectKnowledgeBases": "选择知识库：",
+            "noKnowledgeBases": "未找到知识库。请先创建知识库。",
+            "generateQuestions": "生成练习题",
+            "generatingQuestions": "正在生成题目...",
+            "checkAnswers": "检查答案",
+            "checkingAnswers": "正在检查答案...",
+            "reset": "重置"
+          },
+          "questionTypes": {
+            "multipleChoice": "选择题",
+            "shortAnswer": "简答题",
+            "trueFalse": "判断题",
+            "mixed": "混合类型"
+          },
+          "difficulty": {
+            "easy": "简单",
+            "medium": "中等",
+            "hard": "困难",
+            "mixedLevels": "混合难度"
+          },
+          "answers": {
+            "true": "正确",
+            "false": "错误",
+            "enterAnswer": "请在此输入您的答案...",
+            "correctAnswer": "正确答案：",
+            "answerEvaluation": "答案评估",
+            "answerAnalysis": "答案分析",
+            "yourAnswer": "您的答案：",
+            "score": "得分：",
+            "detailedFeedback": "详细反馈：",
+            "additionalExplanation": "补充说明："
+          },
+          "progress": {
+            "aiAnalysisInProgress": "AI分析进行中",
+            "complete": "完成",
+            "processingRate": "处理速度",
+            "estimatedTime": "预计时间",
+            "remaining": "剩余",
+            "calculating": "计算中...",
+            "parallelProcessing": "并行处理"
+          },
+          "practiceQuestions": "练习题"
+        }
+      }
+    }
   }
 } 
